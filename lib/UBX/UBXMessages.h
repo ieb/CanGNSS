@@ -765,5 +765,27 @@ uint32 FLAGS_DO_CORR_USED = 4194304           # whether Range rate (Doppler)
             });
 
 
+/*!
+* NAV-VELNED Message Structure
+* Velocity Solution in NED
+* Message Type: PERIODIC/POLLED
+* ID: 0x01  0x12  Payload Length=36 bytes
+*/
 
+#define NAV_VELNED_BUFSIZE (6+36+2)
+
+    PACK(
+            struct NavVelNED{
+                UbloxHeader header;     //!< Ublox header
+                uint32_t iTOW;
+                int32_t velocity_north; //!< north velocity [cm/s]
+                int32_t velocity_east; //!< east velocity [cm/s]
+                int32_t velocity_down; //!< down velocity [cm/s]
+                uint32_t speed; //!< 3D speed [cm/s]
+                uint32_t ground_speed; //!< 2D (ground) speed [cm/s]
+                int32_t heading_scaled; //!< heading [deg]. Scaling 1e-5
+                uint32_t speed_accuracy; //!< speed accuracy estimate [cm/s]
+                uint32_t heading_accuracy; //!< course/heading accuracy estimate [deg]. Scaling 1e-5
+                uint8_t checksum[2];
+            });
 

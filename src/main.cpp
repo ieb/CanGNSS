@@ -113,25 +113,40 @@ void setup() {
   console.println(F("Running..."));
 }
 
+
+
 void processMessage() {
   UbloxHeader * message = ubxReader.getMessage();
   switch(message->messageClass) {
-    case 0x01:
+    case MSG_CLASS_NAV:
       switch(message->messageId) {
-        case 0x02:
+        case MSG_ID_NAV_POSLLH:  // 34 bytes
+        // 129025L, // Position Rapid update 5Hz
+        break;
+        case MSG_ID_NAV_VELNED: // 36 bytes
+        // 129026L, // COG/SOG Rapid Update 4Hz
+        break;
+        case ???: // 36 bytes
+        // 129029L, // Position data 1Hz
+        break;
+        case MSG_ID_NAV_DOP: // 28 bytes
+        // 129539L, // GNSS DOPs 1Hz
+        break;
+        case ??: // 28 bytes
+        // 129540L, // GNSS Satellites in View
+        break;
+        case ??: // 28 bytes
+        // 127258L, // Magnetic Variation
+        break;
+        case MSG_ID_NAV_TIMEUTC: //
+        // 126992L, // System Time, 1Hz
+        break;
       }
     break;
     default:
     break;
   }
-  switch (messageTypeIdx) {
-    case 0:
-       NavPosLLH * pos = (NavPosLLH *)(&packetBuffer);
-       break;
-    case 1:
-      NavStatus * status = (NavStatus *)(&packetBuffer);
-      break;
-  }
+
 }
 
 void loop() {
