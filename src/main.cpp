@@ -4,7 +4,8 @@
 #include <SPI.h>
 #include "SmallNMEA2000.h"
 #include "commandline.h"
-#include "UBXRead.h"
+#include "GNSSReciever.h"
+#include "UBXReader.h"
 #include "SoftwareSerial.h"
 
 /*
@@ -16,10 +17,17 @@ will be skipped.
 */
 
 
-
+#ifdef MEGATINYCORE_MCU            
 #define SNMEA_SPI_CS_PIN PIN_PA4
-#define CONSOLE_RX_PIN PIN_PB0
-#define CONSOLE_TX_PIN PIN_PB1
+#define SOFT_RX_PIN PIN_PB0
+#define SOFT_TX_PIN PIN_PB1
+#else
+#define SNMEA_SPI_CS_PIN 4
+#define SOFT_RX_PIN 2
+#define SOFT_TX_PIN 3
+#endif
+
+SoftwareSerial console(SOFT_RX_PIN, SOFT_TX_PIN);
 
 
 const SNMEA2000ProductInfo productInfomation PROGMEM={
@@ -67,93 +75,110 @@ const SNMEA2000DeviceInfo devInfo = SNMEA2000DeviceInfo(
 );
 
 #define DEVICE_ADDRESS 30
+#define DEVICE_SERIAL_NUMBER 45
 
-SNMEA2000Device nmea2000Device = SNMEA2000Device(DEVICE_ADDRESS, 
+GNSSReciever gnssReciever = GNSSReciever(DEVICE_ADDRESS, 
           &devInfo, 
           &productInfomation, 
           &configInfo, 
           &txPGN[0], 
           &rxPGN[0],
-          SNMEA_SPI_CS_PIN
+          SNMEA_SPI_CS_PIN,
+          &console
 );
 
 
+CommandLine commandLine = CommandLine(&console, &gnssReciever);
+
 #define MESSAGE_BUFFER_SIZE 128
-const uint8_t messageBuffer[MESSAGE_BUFFER_SIZE];
-UBXReader ubxReader(&Serial, &messageBuffer[0], MESSAGE_BUFFER_SIZE);
+uint8_t messageBuffer[MESSAGE_BUFFER_SIZE];
+UBXReader ubxReader(&console, &messageBuffer[0], MESSAGE_BUFFER_SIZE);
 
-SofwareSerial console(CONSOLE_RX_PIN, CONSOLE_TX_PIN);
 
-CommandLine commandLine = CommandLine(&console, &pressureMonitor);
+
+
 
 
 bool diagnostics = false;
 void setDiagnostics(bool enabled) {
-  pressureMonitor.setDiagnostics(enabled);
+  gnssReciever.setDiagnostics(enabled);
   diagnostics = enabled;
 }
 
 
 void setup() {
-  console.begin(9600);
-  Serial.begin(115200);
+  console.begin(115200);
   console.println(F("GNSS Receiver start"));
   commandLine.begin();
 
   // If PA7 is pulled high, then the 
   // device starts up emitting serial messages on RX1/TX1
   // pin X low then the device starts with the Can device using SPI.
-  nmea2000Device.setSerialNumber(DEVICE_SERIAL_NUMBER);
-  nmea2000Device.setDeviceAddress(DEVICE_ADDRESS);
-  while ( !nmea2000Device.open() ) {
+  gnssReciever.setSerialNumber(DEVICE_SERIAL_NUMBER);
+  gnssReciever.setDeviceAddress(DEVICE_ADDRESS);
+  gnssReciever.open();
+  /*
+  while ( !gnssReciever.open() ) {
     console.print(F("Failed to start CAN"));
     delay(5000);
-    digitalWrite(FAILURE_LED, HIGH);
   }
+  */
+  ubxReader.begin();
   console.println(F("Running..."));
 }
 
-
-
-void processMessage() {
-  UbloxHeader * message = ubxReader.getMessage();
-  switch(message->messageClass) {
-    case MSG_CLASS_NAV:
-      switch(message->messageId) {
-        case MSG_ID_NAV_POSLLH:  // 34 bytes
-        // 129025L, // Position Rapid update 5Hz
-        break;
-        case MSG_ID_NAV_VELNED: // 36 bytes
-        // 129026L, // COG/SOG Rapid Update 4Hz
-        break;
-        case ???: // 36 bytes
-        // 129029L, // Position data 1Hz
-        break;
-        case MSG_ID_NAV_DOP: // 28 bytes
-        // 129539L, // GNSS DOPs 1Hz
-        break;
-        case ??: // 28 bytes
-        // 129540L, // GNSS Satellites in View
-        break;
-        case ??: // 28 bytes
-        // 127258L, // Magnetic Variation
-        break;
-        case MSG_ID_NAV_TIMEUTC: //
-        // 126992L, // System Time, 1Hz
-        break;
-      }
-    break;
-    default:
-    break;
+void dumpMessage(UbloxHeader *message) {
+  console.print(F("cls: 0x"));
+  console.print(message->messageClass, HEX);
+  console.print(F(" id: 0x"));
+  console.print(message->messageId, HEX);
+  console.print(F(" len: 0x"));
+  console.println(message->payloadLength);  
+}
+void dumpMetrics() {
+  static unsigned long tnext = 0;
+  unsigned long now = millis();
+  if ( now > tnext ) {
+    tnext = now + 5000;
+    UBXReaderMetrics * metrics = ubxReader.getMetrics();
+    console.print(F("metrics bread:"));
+    console.print(metrics->bytesRead);
+    console.print(F(" metrics restarts: "));
+    console.print(metrics->bufferRestarts);
+    console.print(F(" metrics received: "));
+    console.print(metrics->messageRecieved);
+    console.print(F(" metrics errors: "));
+    console.print(metrics->messageError);
+    console.print(F(" metrics overflow: "));
+    console.println(metrics->messageOverflow);
   }
 
 }
 
+
+
 void loop() {
-  if ( ubxReader.read() == msgStatusOk ) {
-    processMessage();
+  eUbloxMessageStatus status = ubxReader.read();
+  UbloxHeader * message = ubxReader.getMessage();
+  switch(status) {
+    case msgStatusOk:
+      console.print(F("Ok clsID:"));
+      dumpMessage(message);
+      gnssReciever.update(message);
+      break;
+    case msgStatusBadCheckSum:
+      console.print(F("Bad checksum "));
+      dumpMessage(message);
+      break;
+    case msgStatusOverflow:
+      console.print(F("Overflow "));
+      dumpMessage(message);
+      break;
+    case msgIncomplete:
+      break;
   }
-  nmea2000Device.processMessages();
+  dumpMetrics();
+  gnssReciever.processMessages();
   commandLine.checkCommand();
 }
 

@@ -2,35 +2,21 @@
 
 #include "SmallNMEA2000.h"
 #include <avr/eeprom.h>
-#include "BME280_t.h"
+#include <avr/wdt.h>
 
 
 #define HR_DEVICE_ADDRESS 0
 #define HR_SERIAL_NUMBER 2
-#define HR_PGN_130310 4
-#define HR_PGN_130311 6
-#define HR_PGN_130313 8
-#define HR_PGN_130314 10
-#define HR_PGN_130316 12
-#define HR_CRC 14
-#define HR_SIZE 16
+#define HR_CRC 4
+#define HR_SIZE 6
 
 
 // symbols from main.cpp so we dont have to get complicated.
-extern double getTemperature();
-extern double getPressure();
-extern double getHumidity();
-extern BME280 BMESensor;
 extern void setDiagnostics(bool enabled);
 
 const uint8_t epromDefaultValues[HR_CRC] PROGMEM = {
   0x1a, 0x00,  // device address 26
   0x04, 0x00,  // serial number
-  0x88, 0x13,          //Period in ms for 130310L, //  Outside Environmental parameters
-  0x88, 0x13,          //Period in ms for 130311L,  // Environmental parameters
-  0x88, 0x13,          //Period in ms for 130313L,  // Humidity parameters
-  0x88, 0x13,          //Period in ms for 130314L,  // Pressure parameters
-  0x88, 0x13          //Period in ms for 130316L,  // Temperature parameters
 };
 
 
@@ -38,15 +24,10 @@ const uint8_t epromDefaultValues[HR_CRC] PROGMEM = {
 
 class CommandLine {
     public:
-        CommandLine(UartClass * io, SNMEA2000 *nmea2000) : io{io}, nmea2000{nmea2000} {};
+        CommandLine(Stream * io, SNMEA2000 *nmea2000) : io{io}, nmea2000{nmea2000} {};
 
         unsigned char deviceAddress = 25;
         uint32_t serialNumber = 123;
-        uint16_t periodPGN130310 = 5000;  //  Outside Environmental parameters
-        uint16_t periodPGN130311 = 5000;  //  Environmental parameters
-        uint16_t periodPGN130313 = 5000;  //  Humidity parameters
-        uint16_t periodPGN130314 = 5000;  //  Pressure parameters
-        uint16_t periodPGN130316 = 5000;  //  Temperature parameters
 
         void begin() {
             loadDefaults();
@@ -59,7 +40,6 @@ class CommandLine {
                 switch ( chr ) {
                     case 'h': showHelp(); break;
                     case 's': showStatus(); break;
-                    case 'r': readSensors();  break;
                     case 'S': doSetup(); break;
                     case 'R': doReset(); break;
                     case 'F': loadDefaults(); break;
@@ -68,12 +48,17 @@ class CommandLine {
             }
         };
     private:
-        UartClass * io;
+        Stream * io;
         bool diagnosticsEnabled = false;
         SNMEA2000 *nmea2000;
 
         void doReset() {
+#ifdef MEGATINYCORE_MCU            
             _PROTECTED_WRITE(RSTCTRL.SWRR, 1);
+#else
+            wdt_enable(WDTO_60MS);
+            while(1) {}
+#endif
         }
 
         void toggleDiagnostics() {
@@ -114,15 +99,6 @@ class CommandLine {
             return crc;
         };
 
-        void readSensors() {
-
-            io->print(F("Temperatuire="));
-            io->println(BMESensor.temperature);
-            io->print(F("Pressure="));
-            io->println(BMESensor.pressure);
-            io->print(F("Humidity="));
-            io->println(BMESensor.humidity);
-        }
 
         void loadDefaults() {
             uint8_t eepromContents[HR_SIZE];
@@ -141,12 +117,6 @@ class CommandLine {
             }
             deviceAddress = asInt16(eepromContents,HR_DEVICE_ADDRESS);
             serialNumber = asInt16(eepromContents,HR_SERIAL_NUMBER);
-            periodPGN130310 = asInt16(eepromContents,HR_PGN_130310);
-            periodPGN130311 = asInt16(eepromContents,HR_PGN_130311);
-            periodPGN130313 = asInt16(eepromContents,HR_PGN_130313);
-            periodPGN130314 = asInt16(eepromContents,HR_PGN_130314);
-            periodPGN130316 = asInt16(eepromContents,HR_PGN_130316);
-
             showStatus();
 
         };
@@ -161,7 +131,7 @@ class CommandLine {
             }
             return false;
         };
-        bool updateSetting(int8_t * registers, uint8_t offset, int16_t minval =  INT16_MIN, int16_t maxval = INT16_MAX) {
+        bool updateSetting(uint8_t * registers, uint8_t offset, int16_t minval =  INT16_MIN, int16_t maxval = INT16_MAX) {
             int16_t value;
             if (readInt(&value)) {
                 if ( value > minval && value < maxval ) {
@@ -202,18 +172,6 @@ class CommandLine {
             io->print(F("Setup - serial number "));io->print(asInt16(eepromContents, HR_SERIAL_NUMBER));io->print(F(" >"));
             changed = updateSetting(eepromContents, HR_SERIAL_NUMBER) || changed;
 
-            io->println(F("Setup - PGN periods in ms, 0 disables  "));
-            io->print(F(" - PGN:130310 Outside Environmental Parameters "));io->print(asInt16(eepromContents, HR_PGN_130310));io->print(F("ms >"));
-            changed = updateSetting(eepromContents, HR_PGN_130310) || changed;
-            io->print(F(" - PGN:130311 Environmental Parameters "));io->print(asInt16(eepromContents, HR_PGN_130311));io->print(F("ms >"));
-            changed = updateSetting(eepromContents, HR_PGN_130311) || changed;
-            io->print(F(" - PGN:130313 Humidity Parameters "));io->print(asInt16(eepromContents, HR_PGN_130313));io->print(F("ms >"));
-            changed = updateSetting(eepromContents, HR_PGN_130313) || changed;
-            io->print(F(" - PGN:130314 Pressure Parameters "));io->print(asInt16(eepromContents, HR_PGN_130314));io->print(F("ms >"));
-            changed = updateSetting(eepromContents, HR_PGN_130314) || changed;
-            io->print(F(" - PGN:130316 Temperature Parameters "));io->print(asInt16(eepromContents, HR_PGN_130316));io->print(F("ms >"));
-            changed = updateSetting(eepromContents, HR_PGN_130316) || changed;
-
             if ( changed ) {
                 // update CRC and save.
                 uint16_t crcv =  crc16(&eepromContents[0], HR_SIZE-2);
@@ -223,11 +181,6 @@ class CommandLine {
                 // update device address, which may have changed.
                 deviceAddress = asInt16(eepromContents,HR_DEVICE_ADDRESS);
                 serialNumber = asInt16(eepromContents,HR_SERIAL_NUMBER);
-                periodPGN130310 = asInt16(eepromContents,HR_PGN_130310);
-                periodPGN130311 = asInt16(eepromContents,HR_PGN_130311);
-                periodPGN130313 = asInt16(eepromContents,HR_PGN_130313);
-                periodPGN130314 = asInt16(eepromContents,HR_PGN_130314);
-                periodPGN130316 = asInt16(eepromContents,HR_PGN_130316);
                 showStatus();
                 io->println(F("Settings changed, device will restart in 5s "));
                 delay(5000);
@@ -242,7 +195,6 @@ class CommandLine {
             io->println(F("  - 'h' or '?' to show this message"));
             io->println(F("  - 's' show status"));
             io->println(F("  - 'd' toggle diagnostics"));
-            io->println(F("  - 'r' read sensor"));            
             io->println(F("  - 'S' setup"));
             io->println(F("  - 'R' reset"));
             io->println(F("  - 'F' factory reset"));
@@ -264,13 +216,9 @@ class CommandLine {
             io->println(deviceAddress);
             io->print(F("Serial Number  :"));
             io->println(serialNumber);
-            io->print(F("PGN:130310 Outside Environmental Parameters :"));printPeriod(periodPGN130310);
-            io->print(F("PGN:130311 Environmental Parameters         :"));printPeriod(periodPGN130311);
-            io->print(F("PGN:130313 Environmental Parameters         :"));printPeriod(periodPGN130313);
-            io->print(F("PGN:130314 Environmental Parameters         :"));printPeriod(periodPGN130314);
-            io->print(F("PGN:130316 Environmental Parameters         :"));printPeriod(periodPGN130316);
 
             nmea2000->dumpStatus();
+#ifdef MEGATINYCORE_MCU            
             io->print((F("MCU V=")));
             io->print(readMCUVoltage());
             io->print((F("mV T=")));
@@ -278,8 +226,14 @@ class CommandLine {
             t -= 273;
             io->print(t);
             io->println((F("C")));
+#else
+            io->println("");
+#endif
+
 
         };
+
+#ifdef MEGATINYCORE_MCU            
 
         uint16_t readMCUVoltage() {
             analogReference(INTERNAL1V024);
@@ -307,7 +261,7 @@ class CommandLine {
             return reading;
 
         }
-
+#endif
 };
 
 

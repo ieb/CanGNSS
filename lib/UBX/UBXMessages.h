@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Arduino.h>
 /**
  * 
  * To use
@@ -16,7 +17,20 @@
  * }
  */
 
+#define ULBOX_SYNC1 0xB5
+#define ULBOX_SYNC2 0x62
 
+
+typedef struct _UbloxHeader {
+    uint8_t sync1; // 0x5B
+    uint8_t sync2; // 0x62
+    uint8_t messageClass;
+    uint8_t messageId;
+    uint16_t payloadLength;
+} UbloxHeader;
+
+
+// https://content.u-blox.com/sites/default/files/products/documents/u-blox8-M8_ReceiverDescrProtSpec_UBX-13003221.pdf
 
 // sections  from https://github.com/GAVLab/ubloxM8/blob/master/include/ubloxM8/ublox_m8_structures.h
 // with additional information from http://docs.ros.org/en/noetic/api/ublox_msgs/html/index-msg.html
@@ -176,6 +190,58 @@
 // we dont allocate these, they are used
 // as pointers to the packet buffer to simplify decoding.
 
+PACK(
+struct CfgReset {
+    UbloxHeader header;
+    uint16_t navBbrMask;
+    // 0x0000 hot start
+    // 0x0001 warm start
+    // 0xFFFF cold start
+    uint8_t resetMode;
+    // 0x00 harware, 
+    // 0x01 controlled sofware
+    // 0x02 controlled software GNSS
+    // 0x04 Hadrware watchdog after shutdown
+    // 0x08 Controlled GNSS stop
+    // 0x09 Controlled GNSS start  
+    uint8_t reserved;
+    uint8_t checksum[2];
+});
+
+
+PACK(
+struct CfgMsg {
+    UbloxHeader header;
+    uint8_t messageClass;
+    uint8_t messageId;
+    uint8_t rates[6];
+    uint8_t checksum[2];
+});
+
+PACK(
+struct CfgRate {
+    UbloxHeader header;
+    uint16_t measRate;
+    uint16_t navRate;
+    uint16_t timeRef;
+    uint8_t checksum[2];
+});
+
+
+PACK(
+struct CfgUart {
+    UbloxHeader header;
+    uint8_t portID;
+    uint8_t reserved1;
+    uint16_t txReady;  // 0 no
+    uint32_t mode; 
+    uint32_t baud;  // 0x000008C0  0b100011000000  8-N-1
+    uint16_t inProtoMask; // 3  ubx + nemea
+    uint16_t outProtoMask; // 3 ubx + nemea
+    uint16_t flags; // 0 , no extended tx buffer.
+    uint8_t reserved2[2];
+    uint8_t checksum[2];
+});
 
 /*!
 * NAV-CLOCK Message Structure
@@ -195,6 +261,7 @@
                 int32_t clkdrift;   // clock drift in ns/s
                 uint32_t tacc;      // time accuracy estimate (ns)
                 uint32_t facc;      // frequency accuracy estimate (ps/s)
+                uint8_t checksum[2];
             });
 
 /*!
@@ -226,7 +293,7 @@
                 uint8_t numchan;    // nomber of channels for which correction data is following
                 uint8_t status; // DGPS correction type status
                 uint16_t reserved;  // reserved
-                // NavDGPS_CH[numcha] 
+                NavDGPS_CH satelites[1]; 
             });
 
 /*!
@@ -264,6 +331,7 @@
                 uint16_t hdop;  // Horizontal DOP [1 / 0.01]
                 uint16_t ndop;  // Northing DOP [1 / 0.01]
                 uint16_t edop;  // Easting DOP [1 / 0.01]
+                uint8_t checksum[2];
             });
 
 /*!
@@ -289,6 +357,7 @@
                 int32_t height_mean_sea_level; //!< height above mean sea level [mm]
                 uint32_t horizontal_accuracy; //!< horizontal accuracy estimate [mm]
                 uint32_t vertical_accuracy; //!< vertical accuracy estimate [mm]
+                uint8_t checksum[2];
             });
 
 /*!
@@ -368,8 +437,10 @@
                 // Note, fields below are missing from V7 firmware messages which end here.
                 //
                 int32_t headVeh;       // Heading of vehicle (2-D) [deg / 1e-5]
-                int16_t magDec         // Magnetic declination [deg / 1e-2]
-                uint16_t magAcc        // Magnetic declination accuracy [deg / 1e-2]
+                int16_t magDec;         // Magnetic declination [deg / 1e-2]
+                uint16_t magAcc;        // Magnetic declination accuracy [deg / 1e-2]
+                uint8_t checksum[2];
+
             });
 
 
@@ -383,15 +454,6 @@
 
 #define NAV_SAT_BUFSIZE(n) (6+8+12*(n)+2)
 
-    PACK(
-            struct NavSat{
-                UbloxHeader header;
-                uint32_t iTOW;     // GPS time of week of the navigation epoch. See the description of iTOW for details.
-                uint8_t version;       // Message version (1 for this version)
-                uint8_t numSvs;        // Number of satellites
-                uint8_t reserved1[2];     // Reserved
-                // NavSat_SV[numSvs]
-            });
 
     PACK(
             struct NavSat_SV{
@@ -404,7 +466,7 @@
                 uint32_t flags;        // Bitmask (see graphic below)
 
 /*
-                uint32 FLAGS_QUALITY_IND_MASK = 7     # Signal quality indicator:
+uint32 FLAGS_QUALITY_IND_MASK = 7     # Signal quality indicator:
 uint8 QUALITY_IND_NO_SIGNAL = 0                     # no signal
 uint8 QUALITY_IND_SEARCHING_SIGNAL = 1              # searching signal
 uint8 QUALITY_IND_SIGNAL_ACQUIRED = 2               # signal acquired
@@ -475,6 +537,17 @@ uint32 FLAGS_DO_CORR_USED = 4194304           # whether Range rate (Doppler)
 */
             });
 
+    PACK(
+            struct NavSat{
+                UbloxHeader header;
+                uint32_t iTOW;     // GPS time of week of the navigation epoch. See the description of iTOW for details.
+                uint8_t version;       // Message version (1 for this version)
+                uint8_t numSvs;        // Number of satellites
+                uint8_t reserved1[2];     // Reserved
+                NavSat_SV satelites[1]; // point to the first entry
+                // NavSat_SV[numSvs]
+            });
+
 /*!
 * NAV-SBAS Message Structure
 * SBAS Status Data
@@ -483,9 +556,24 @@ uint32 FLAGS_DO_CORR_USED = 4194304           # whether Range rate (Doppler)
 * Total = 6+ 12 +12 *count
 */
 
-#define NAV_PVT_BUFSIZE(n) (6+12+12*(n)+2)
+#define NAV_SBAS_BUFSIZE(n) (6+12+12*(n)+2)
 
 
+
+
+
+    PACK(
+            struct NavSBAS_SV {
+                uint8_t svid;              // SV Id
+                uint8_t flags;             // Flags for this SV
+                uint8_t udre;              // Monitoring status
+                uint8_t svSys;             // System (WAAS/EGNOS/...), same as SYS
+                uint8_t svService;         // Services available, same as SERVICE
+                uint8_t reserved1;         // Reserved
+                int16_t prc;               // Pseudo Range correction in [cm]
+                uint16_t reserved2;        // Reserved
+                int16_t ic;                // Ionosphere correction in [cm]
+            });
 
     PACK(
             struct NavSBAS {
@@ -511,22 +599,9 @@ uint32 FLAGS_DO_CORR_USED = 4194304           # whether Range rate (Doppler)
                 //uint8 SERVICE_TESTMODE = 8
                 uint8_t count;              // # Number of SV data following
                 uint8_t reserved0[3];      // # Reserved
-
+                NavSBAS_SV satelites[1]; // first entry
                 // NavSBAS_SV[count] sv
 
-            });
-
-    PACK(
-            struct NavSBAS_SV {
-                uint8_t svid              // SV Id
-                uint8_t flags             // Flags for this SV
-                uint8_t udre              // Monitoring status
-                uint8_t svSys             // System (WAAS/EGNOS/...), same as SYS
-                uint8_t svService         // Services available, same as SERVICE
-                uint8_t reserved1         // Reserved
-                int16_t prc               // Pseudo Range correction in [cm]
-                uint16_t reserved2        // Reserved
-                int16_t ic                // Ionosphere correction in [cm]
             });
 
 /*!
@@ -537,7 +612,7 @@ uint32 FLAGS_DO_CORR_USED = 4194304           # whether Range rate (Doppler)
  * Total 6+16 = 22
  */
 
- #define NAV_PVT_BUFSIZE (6+16+2)
+ #define NAV_STATUS_BUFSIZE (6+16+2)
    
     PACK(
             struct NavStatus {
@@ -594,6 +669,7 @@ uint32 FLAGS_DO_CORR_USED = 4194304           # whether Range rate (Doppler)
                 //uint8 SPOOF_DET_STATE_MULTIPLE = 24  # Multiple spoofing indication
                 uint32_t ttff;      // TTFF (ms)
                 uint32_t msss;      // Milliseconds since startup/reset
+                uint8_t checksum[2];
             });
 
 
@@ -661,6 +737,7 @@ uint32 FLAGS_DO_CORR_USED = 4194304           # whether Range rate (Doppler)
                 //uint8 CHIPGEN_UBLOX7 = 3    # u-blox 7
                 //uint8 CHIPGEN_UBLOX8 = 4    # u-blox 8 / u-blox M8
                 uint16_t reserved2;
+                NavSVInfo_SV satelites[1]; // first entry.
                 //  NavSVInfo_SV[numch]
             });
 // Description of flags bitfield
@@ -694,6 +771,7 @@ uint32 FLAGS_DO_CORR_USED = 4194304           # whether Range rate (Doppler)
                 uint8_t N4;        // Four-year interval number starting from 1996 (1=1996, 2=2000, 3=2004...)
                 uint8_t valid;     // Validity flags (see graphic below)
                 uint32_t tAcc;     // Time Accuracy Estimate
+                uint8_t checksum[2];
             });
 
 
@@ -720,6 +798,7 @@ uint32 FLAGS_DO_CORR_USED = 4194304           # whether Range rate (Doppler)
                 //uint8 VALID_WEEK = 2       # Valid Week Number
                 //uint8 VALID_LEAP_S = 4     # Valid Leap Seconds
                 uint32_t tacc;  // time accuracy measurement (nanosecs)
+                uint8_t checksum[2];
             });
 
 

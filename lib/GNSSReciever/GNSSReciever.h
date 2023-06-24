@@ -1,22 +1,10 @@
 #pragma once
 
+#include <Arduino.h>
+#include "UBXMessages.h"
+#include "SmallNMEA2000.h"
 
-
-typedef struct _GNSSStationReferences {
-    eGnssType referenceStationType,
-    uint16_t referenceStationID,
-    double ageOfCorrection // in seconds.
-} GNSSStationReferences;
-
-typedef struct _GNSSSatelites {
-  byte prn;
-  double elevation;
-  double azimuth;
-  double snr;
-  double rangeResiduals;
-  eUsageStatus UsageStatus;
-} GNSSSatelites;
-
+/*
 enum eUsageStatus {
   usage_NotTracked=0,
   usage_TrackedNotUsed=1,
@@ -64,75 +52,52 @@ enum eGnssMethod {
     gnssm_Unavailable=15
 };
 
+typedef struct _GNSSStationReferences {
+    eGnssType referenceStationType,
+    uint16_t referenceStationID,
+    double ageOfCorrection // in seconds.
+} GNSSStationReferences;
 
+typedef struct _GNSSSatelites {
+  byte prn;
+  double elevation;
+  double azimuth;
+  double snr;
+  double rangeResiduals;
+  eUsageStatus UsageStatus;
+} GNSSSatelites;
+*/
 
-class SNMEA2000Device : public SNMEA2000 {
+class GNSSReciever : public SNMEA2000 {
     public:
-      SNMEA2000Device(byte addr,
+      GNSSReciever(byte addr,
         SNMEA2000DeviceInfo * devInfo, 
         const SNMEA2000ProductInfo * pinfo, 
         const SNMEA2000ConfigInfo * cinfo,
         const unsigned long *tx,
         const unsigned long *rx,
-        const uint8_t csPin
-        ): SNMEA2000{addr, devInfo, pinfo, cinfo, tx, rx, csPin} {};
+        const uint8_t csPin,
+        Print *console
+        ): SNMEA2000{addr, devInfo, pinfo, cinfo, tx, rx, csPin, console} {};
 
-    /**
-     * 126992, // System Time, 1Hz
-     */
-    void sendSystemTime(byte sid, 
-        uint16_t systemDate, 
-        double systemTime);
+    void update(UbloxHeader *message);
+private:
+    uint16_t hdop; // 0.01 units
+    uint16_t pdop; // 0.01 units
+    byte actualMode;
 
-    /**
-     * 129025, // Position Rapid update 5Hz
-     */
-    void sendPositionRapidUpdate(double latitude, double longitude);
-    /**
-      * 129026, // COG/SOG Rapid Update 4Hz
-     */
-    void sendCOGSOGRapidUpdate(byte sid, 
-        double cog, 
-        double sog);
-    /**
-      * 129029, // Position data 1Hz
-     */
-    void sendPosstionData(byte sid, 
-        uint16_t systemDate, 
-        double systemTime, // seconds since midnight
-        double latitude, 
-        double longitude, 
-        double altitude,
-        eGnssMethod gnssMethod, 
-        byte nSatelites, 
-        double hdop, 
-        double pdop, 
-        eGnssType gnssType = gnsst_GPSSBASWAASGLONASS,
-        byte nreference = 0, 
-        GNSSStationReferences *refrences = NULL );
-    /**
-      * 129539, // GNSS DOPs 1Hz
-     */
-    void sendGNSSDOP(byte sid, 
-        double hdop, 
-        double pdop, 
-        double tdop,
-        eGNSSMode desiredMode, 
-        eGNSSMode actualMode);
-    /**
-      * 129540, // GNSS Satellites in View
-     */
-    void sendGNSSSatelites(byte sid, 
-        eRangeResidualMode rangeResidualMode, 
-        byte nSatelitesInView, 
-        GNSSSatelites *satelites);
-    /**
-      * 127258, // Magnetic Variation
-     */
-    void sendMagneticVariation(byte sid, 
-        uint16_t age, 
-        double variation,
-        eVariationSource source);
+    void sendRapidPossitionUpdate(NavPosLLH *possition);
+    void sendCOGSOG(NavVelNED *velned);
+    void sendPossition(NavPVT *pvt);
+    void sendMagneticVariation(NavPVT *pvt);
+    void sendTimeUTC(NavPVT *pvt);
+    void sendSatelitesInView(NavSat *sat);
+    void sendDOP(NavDOP *dop);
+    float calculateVariationRadians(NavPVT *pvt);
+    uint16_t getDaysSince1970(NavPVT *pvt);
+    float decimalYear(NavPVT *pvt);
+    uint32_t getSecondsSinceMidnight(NavPVT *pvt);
+    void outputBytes(uint8_t *p, uint8_t len);
 
 };
 
