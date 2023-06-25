@@ -221,27 +221,50 @@ struct CfgMsg {
 PACK(
 struct CfgRate {
     UbloxHeader header;
-    uint16_t measRate;
-    uint16_t navRate;
-    uint16_t timeRef;
-    uint8_t checksum[2];
-});
-
+        uint16_t measRate;
+        uint16_t navRate;
+        uint16_t timeRef;
+        uint8_t checksum[2];
+    }
+);
 
 PACK(
-struct CfgUart {
-    UbloxHeader header;
-    uint8_t portID;
-    uint8_t reserved1;
-    uint16_t txReady;  // 0 no
-    uint32_t mode; 
-    uint32_t baud;  // 0x000008C0  0b100011000000  8-N-1
-    uint16_t inProtoMask; // 3  ubx + nemea
-    uint16_t outProtoMask; // 3 ubx + nemea
-    uint16_t flags; // 0 , no extended tx buffer.
-    uint8_t reserved2[2];
-    uint8_t checksum[2];
-});
+    struct CfgGNSS_System {
+        uint8_t gnssId;
+        uint8_t resTrkCh;
+        uint8_t maxTrkCh;
+        uint8_t reserved;
+        uint32_t flags;
+    }
+);
+
+PACK(
+    struct CfgGNSS {
+        UbloxHeader header;
+        uint8_t msgVer = 0;
+        uint8_t numTrkChHw = 32;
+        uint8_t numTrkChUse = 0xFF; // use all
+        uint8_t numConfigBlocks = 7;
+        CfgGNSS_System systems[7];
+        uint8_t checksum[2];
+    }
+);
+
+PACK(
+    struct CfgUart {
+        UbloxHeader header;
+        uint8_t portID;
+        uint8_t reserved1;
+        uint16_t txReady;  // 0 no
+        uint32_t mode; 
+        uint32_t baud;  // 0x000008C0  0b100011000000  8-N-1
+        uint16_t inProtoMask; // 3  ubx + nemea
+        uint16_t outProtoMask; // 3 ubx + nemea
+        uint16_t flags; // 0 , no extended tx buffer.
+        uint8_t reserved2[2];
+        uint8_t checksum[2];
+    }
+);
 
 /*!
 * NAV-CLOCK Message Structure

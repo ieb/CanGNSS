@@ -107,7 +107,7 @@ void setDiagnostics(bool enabled) {
 
 
 void setup() {
-  console.begin(115200);
+  console.begin(34800);
   console.println(F("GNSS Receiver start"));
   commandLine.begin();
 

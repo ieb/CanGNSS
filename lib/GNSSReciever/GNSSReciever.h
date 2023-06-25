@@ -85,6 +85,8 @@ private:
     uint16_t hdop; // 0.01 units
     uint16_t pdop; // 0.01 units
     byte actualMode;
+    unsigned long lastVariationCalc = 0;
+    float variation = 0; // in radians
 
     void sendRapidPossitionUpdate(NavPosLLH *possition);
     void sendCOGSOG(NavVelNED *velned);

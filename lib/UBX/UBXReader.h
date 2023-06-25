@@ -4,7 +4,6 @@
 #include <Arduino.h>
 #include "UBXMessages.h"
 
-#define ubloxDevice Serial
 
 enum eUbloxMessageStatus {
     msgStatusOk = 0,
@@ -49,7 +48,8 @@ public:
     UBXReaderMetrics * getMetrics() {
         return &metrics;
     }
-    bool begin();
+    bool begin(uint16_t baudRate=19200);
+
 private:
     Stream * console;
     uint8_t * packetBuffer; 
@@ -60,9 +60,15 @@ private:
     UBXReaderMetrics metrics;
     bool isChecksumCorrect();
     void calculateChecksum(UbloxHeader *message, uint8_t *op);
+    bool detectTraffic();
+#ifdef CONFIGURE_DEVICE
     void sendMessage(UbloxHeader *message);
-    void dumpBufferHex(uint8_t * buffer, uint16_t len);
     void setMessageRate(uint8_t cls, uint8_t id, uint8_t rate);
     void setNavRate(uint16_t measMs, uint16_t measCycles, uint16_t ref);
+    void setupSatelites();
+#endif
+#ifdef DEBUG
+    void dumpBufferHex(uint8_t * buffer, uint16_t len);
+#endif
 
 };

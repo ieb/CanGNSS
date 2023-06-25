@@ -203,14 +203,18 @@ void GNSSReciever::sendDOP(NavDOP *dop) {
 }
 
 float GNSSReciever::calculateVariationRadians(NavPVT *pvt) {
-    float lat = 1.0E-7*(pvt->lat);
-    float lon = 1.0E-7*(pvt->lon);
-    float height = 0.0;     // sea level
-    float dyear = decimalYear(pvt);
-    geomag::Vector position = geomag::geodetic2ecef(lat,lon,height);
-    geomag::Vector mag_field = geomag::GeoMag(dyear,position,geomag::WMM2020);
-    geomag::Elements out = geomag::magField2Elements(mag_field, lat, lon);
-    return ((float) M_PI/180.0) * out.declination;
+    unsigned long now = millis();
+    if ( now > lastVariationCalc + 60000) {
+        float lat = 1.0E-7*(pvt->lat);
+        float lon = 1.0E-7*(pvt->lon);
+        float height = 0.0;     // sea level
+        float dyear = decimalYear(pvt);
+        geomag::Vector position = geomag::geodetic2ecef(lat,lon,height);
+        geomag::Vector mag_field = geomag::GeoMag(dyear,position,geomag::WMM2020);
+        geomag::Elements out = geomag::magField2Elements(mag_field, lat, lon);
+        variation = ((float) M_PI/180.0) * out.declination;
+    }
+    return variation;
 }
 
 uint16_t GNSSReciever::getDaysSince1970(NavPVT *pvt) {

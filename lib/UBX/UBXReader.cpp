@@ -1,14 +1,15 @@
 
 #include "UBXReader.h"
-#include <avr/wdt.h>
+
+#define ubloxDevice Serial
 
 
-#define DESIRED_BAUD 38400
-
+#ifdef CONFIGURE_DEVICE
 const uint32_t BAUDS[] = {
     38400, 57600, 115200,  9600,  4800, 19200
 };
 #define NUM_BAUDS 6
+#endif
 
 /**
  * Call the UBX reader with a list of UbxMessageTypes
@@ -20,9 +21,53 @@ UBXReader::UBXReader(Stream * console, uint8_t * buffer, uint16_t len) {
     maxBufferSize = len;
 };
 
+//#define CONFIGURE_DEVICE 1
 
-bool UBXReader::begin() {
-    // discover what stat the device is in. 
+bool UBXReader::begin(uint16_t baudRate) {
+#ifndef CONFIGURE_DEVICE
+    console->println(F("ublox must be pre configured and running 19200 8-N-1"));
+    ubloxDevice.begin(baudRate);
+    console->print(F("Trying 19200 baud"));
+    return detectTraffic();
+#else
+    return configureDevice(baudRate);
+#endif
+}
+
+bool UBXReader::detectTraffic() {
+    // try to read 2 lines to see if we are getting NMEA0183
+    unsigned long timeout = millis()+1000;
+    uint8_t buf[4];
+    while(millis() < timeout) {
+        if ( ubloxDevice.available() ) {
+            buf[0] = buf[1];
+            buf[1] = buf[2];
+            buf[2] = buf[3];
+            buf[3] = ubloxDevice.read();
+//                console->write(buf[3]);
+            if ( buf[0] == '\r' && buf[1] == '\n' && buf[2] == '$' && buf[3] == 'G') {
+                //NMEA0183 detected.
+                console->println(F(" NMEA0183 detected"));
+                return true;
+            } else if ( buf[0] == ULBOX_SYNC1 && buf[1] == ULBOX_SYNC2 ) {
+                // UBX detected.
+                console->println(F(" UBX detected"));
+                return true;
+            }
+        }
+    }
+    console->println(F(" Nothing detected"));
+    return false;
+}
+
+
+#ifdef CONFIGURE_DEVICE
+// Only required were the device is not pre configured.
+// removed to save progmem space
+
+bool UBXReader::configureDevice(uint16_t baudRate) {
+    // discover what state the device is in, and setup
+    // to match what is required.
     bool setupDone = false;
     uint8_t baudId = 0;
     while(!setupDone) {
@@ -33,27 +78,10 @@ bool UBXReader::begin() {
             console->print(F("Trying "));
             console->print(BAUDS[baudId]);
 
-            // try to read 2 lines to see if we are getting NMEA0183
-            unsigned long timeout = millis()+1000;
-            uint8_t buf[4];
-            while(millis() < timeout && detecting) {
-                if ( ubloxDevice.available() ) {
-                    buf[0] = buf[1];
-                    buf[1] = buf[2];
-                    buf[2] = buf[3];
-                    buf[3] = ubloxDevice.read();
-    //                console->write(buf[3]);
-                    if ( buf[0] == '\r' && buf[1] == '\n' && buf[2] == '$' && buf[3] == 'G') {
-                        //NMEA0183 detected.
-                        console->println(F(" NMEA0183 detected"));
-                        detecting = false;
-                    } else if ( buf[0] == ULBOX_SYNC1 && buf[1] == ULBOX_SYNC2 ) {
-                        // UBX detected.
-                        console->println(F(" UBX detected"));
-                        detecting = false;
-                    }
-                }
+            if ( detectTraffic() ) {
+                detecting = false;
             }
+
             if ( detecting ) {
                 ubloxDevice.end();
                 console->println(F(" disconnected"));
@@ -65,7 +93,7 @@ bool UBXReader::begin() {
             console->println(F(" Ublox device not detected at any baud"));
             return false;
         }
-        if ( BAUDS[baudId] != DESIRED_BAUD ) {
+        if ( BAUDS[baudId] != baudRate ) {
             // reconfigure to baudID 0, and restart.
             CfgUart cfgUart = {
                 ULBOX_SYNC1,
@@ -77,7 +105,7 @@ bool UBXReader::begin() {
                 0xff, // reserved
                 (uint16_t) 0x00, // txReady disabled.
                 (uint32_t) 0x000008C0, // 8-N-1
-                (uint32_t) DESIRED_BAUD,
+                (uint32_t) baudRate,
                 (uint16_t) 3, // 3  ubx + nemea
                 (uint16_t) 3, // 3  ubx + nemea
                 (uint16_t) 0x0000, // 0 , no extended tx buffer.
@@ -86,13 +114,17 @@ bool UBXReader::begin() {
                 0x01,
                 0x02
             };
+#ifdef DEBUG
             console->print(F("before checksum:        [ "));
             dumpBufferHex((uint8_t *)&cfgUart, sizeof(cfgUart));
             console->println(F("]"));
+#endif
             calculateChecksum(&(cfgUart.header), &(cfgUart.checksum[0]));
+#ifdef DEBUG
             console->print(F("Sent baudrate message as:[ "));
             dumpBufferHex((uint8_t *)&cfgUart, sizeof(cfgUart));
             console->println(F("]"));
+#endif
             ubloxDevice.write((uint8_t *)&cfgUart, sizeof(cfgUart));
             ubloxDevice.flush();
             delay(100);
@@ -111,6 +143,7 @@ bool UBXReader::begin() {
     for (uint8_t i = 0; i < 16;i++) {
         setMessageRate(0xF0,i,0); // disable all nmea0183 messages, lookuo in uCenter
     }
+    setupSatelites();
     setMessageRate(MSG_CLASS_NAV, MSG_ID_NAV_POSLLH, 1); // 5Hz
     setMessageRate(MSG_CLASS_NAV, MSG_ID_NAV_VELNED, 2); // 2.5Hz
     setMessageRate(MSG_CLASS_NAV, MSG_ID_NAV_PVT, 5); // 1Hz
@@ -163,8 +196,67 @@ void UBXReader::setNavRate(uint16_t measMs, uint16_t measCycles, uint16_t ref) {
     ubloxDevice.write((uint8_t *)&rates, sizeof(CfgRate));
     ubloxDevice.flush();
     delay(50);
+}
+void UBXReader::setupSatelites() {
+    CfgGNSS message;
+
+    message.header.sync1 = ULBOX_SYNC1;
+    message.header.sync2 = ULBOX_SYNC2;
+    message.header.messageClass = MSG_CLASS_CFG;
+    message.header.messageId = MSG_ID_CFG_GNSS;
+    message.header.payloadLength = (4+7*sizeof(CfgGNSS_System));
+    message.msgVer = 0;
+    message.numTrkChHw = 32;
+    message.numTrkChUse = 0xFF;
+    message.numConfigBlocks = 7;
+
+    message.systems[0].gnssId = 0; // GPS 
+    message.systems[0].resTrkCh = 8; 
+    message.systems[0].maxTrkCh = 16; 
+    message.systems[0].flags = 0x00010001; // L1C/A 1575.42MHz 
+
+    message.systems[1].gnssId = 1; // SBAS
+    message.systems[1].resTrkCh = 1; 
+    message.systems[1].maxTrkCh = 3; 
+    message.systems[1].flags = 0x00010001; // L1C/A 1575.42MHz 
+
+    message.systems[2].gnssId = 2; // Galleleo
+    message.systems[2].resTrkCh = 4; 
+    message.systems[2].maxTrkCh = 10; 
+    message.systems[2].flags = 0x00010001; // E1 1,575.42MHz
+
+    message.systems[3].gnssId = 3; // BeiDou, disabled
+    message.systems[3].resTrkCh = 0; 
+    message.systems[3].maxTrkCh = 0; 
+    message.systems[3].flags = 0x00000000; 
+
+    message.systems[4].gnssId = 4; // IMES, disabled
+    message.systems[4].resTrkCh = 0; 
+    message.systems[4].maxTrkCh = 0; 
+    message.systems[4].flags = 0x00000000; 
+
+    message.systems[5].gnssId = 5; // QZSS, disabled
+    message.systems[5].resTrkCh = 0; 
+    message.systems[5].maxTrkCh = 0; 
+    message.systems[5].flags = 0x00000000; 
+
+    message.systems[6].gnssId = 5; // Glonas 
+    message.systems[6].resTrkCh = 6; 
+    message.systems[6].maxTrkCh = 8; 
+    message.systems[6].flags = 0x00010001;  // L1  1592.9525 MHz to 1610.485 14 channels
+
+    // so we can verify checksump calculation.
+    message.checksum[0] = 0x01;
+    message.checksum[1] = 0x02;
+
+    calculateChecksum(&(message.header), &(message.checksum[0]));
+    ubloxDevice.write((uint8_t *)&message, sizeof(CfgGNSS));
+    ubloxDevice.flush();
+    delay(50);
 
 }
+
+#endif
 
 
 /**
@@ -174,6 +266,7 @@ void UBXReader::setNavRate(uint16_t measMs, uint16_t measCycles, uint16_t ref) {
 eUbloxMessageStatus UBXReader::read() {
     while (ubloxDevice.available() > 0) {
         uint8_t c = ubloxDevice.read();
+#ifdef DEBUG
         if ((c > 31 && c < 127) || c == '\r' || c == '\n') {
             console->write(c);
         } else {
@@ -181,6 +274,7 @@ eUbloxMessageStatus UBXReader::read() {
             console->print(c,HEX);
             console->print("]");
         }
+#endif
         if ( pos < maxBufferSize ) {
             packetBuffer[pos] = c;
         }
@@ -218,6 +312,7 @@ eUbloxMessageStatus UBXReader::read() {
 }
 
 
+#ifdef DEBUG
 void UBXReader::dumpBufferHex(uint8_t * buffer, uint16_t len) {
     for(uint16_t i = 0; i < len; i++) {
         if (buffer[i] < 16) {
@@ -228,6 +323,7 @@ void UBXReader::dumpBufferHex(uint8_t * buffer, uint16_t len) {
         console->print(buffer[i],HEX);
     }
 }
+#endif
 
 UbloxHeader *  UBXReader::getMessage() {
     return ubloxHeader;
@@ -248,6 +344,7 @@ void UBXReader::calculateChecksum(UbloxHeader *message, uint8_t *op) {
   for (uint16_t i = 2; i < messageLength; i++) {
     a =  a + messageBuffer[i];
     b =  b + a;
+#ifdef DEBUG
     console->print("idx:");
     console->print(i);
     console->print(" in:0x");
@@ -256,14 +353,9 @@ void UBXReader::calculateChecksum(UbloxHeader *message, uint8_t *op) {
     console->print(a);
     console->print("b:");
     console->println(b);
+#endif
   }
   op[0] = a;
   op[1] = b;    
 }
 
-void UBXReader::sendMessage(UbloxHeader *message) {
-  uint16_t messageLength =  message->payloadLength + sizeof(UbloxHeader);
-  uint8_t *messageBuffer = (uint8_t *)message;
-  calculateChecksum(message, &messageBuffer[messageLength]);
-  ubloxDevice.write(messageBuffer,messageLength+2);
-}
