@@ -68,6 +68,31 @@ typedef struct _GNSSSatelites {
 } GNSSSatelites;
 */
 
+
+typedef struct _GNSSFix {
+    uint8_t sid;
+    uint8_t fixType;
+    uint8_t methodType;
+    uint8_t actualMode;
+    uint8_t valid;
+    uint8_t numSV;
+    uint8_t numSvu;
+    int16_t pdop;
+    int16_t hdop;
+    int16_t vdop;
+    int16_t tdop;
+    uint16_t daysSince1970;
+    uint32_t secondsSinceMidnight;
+    int32_t lat;
+    int32_t lon;
+    int32_t height;
+    int32_t latitude_scaled;
+    int32_t longitude_scaled;
+    int32_t heading_scaled;
+    uint32_t ground_speed;
+    float variation;
+} GNSSFix;
+
 class GNSSReciever : public SNMEA2000 {
     public:
       GNSSReciever(byte addr,
@@ -81,21 +106,21 @@ class GNSSReciever : public SNMEA2000 {
         ): SNMEA2000{addr, devInfo, pinfo, cinfo, tx, rx, csPin, console} {};
 
     void update(UbloxHeader *message);
+    GNSSFix * getFix() {
+        return &gnss;
+    };
 private:
-    uint16_t hdop; // 0.01 units
-    uint16_t pdop; // 0.01 units
-    byte actualMode;
+    GNSSFix gnss;
     unsigned long lastVariationCalc = 0;
-    float variation = 0; // in radians
-
-    void sendRapidPossitionUpdate(NavPosLLH *possition);
-    void sendCOGSOG(NavVelNED *velned);
-    void sendPossition(NavPVT *pvt);
-    void sendMagneticVariation(NavPVT *pvt);
-    void sendTimeUTC(NavPVT *pvt);
+    void updateGnssFromPVT(NavPVT * pvt);
+    void sendRapidPossitionUpdate();
+    void sendCOGSOG();
+    void sendPossition();
+    void sendMagneticVariation();
+    void sendTimeUTC();
     void sendSatelitesInView(NavSat *sat);
-    void sendDOP(NavDOP *dop);
-    float calculateVariationRadians(NavPVT *pvt);
+    void sendDOP();
+    void calculateVariationDegrees(NavPVT *pvt);
     uint16_t getDaysSince1970(NavPVT *pvt);
     float decimalYear(NavPVT *pvt);
     uint32_t getSecondsSinceMidnight(NavPVT *pvt);

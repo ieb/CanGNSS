@@ -16,136 +16,172 @@ typedef union _opbuf {
     uint16_t u16;
 } OpBuf;
 
+extern void dumpMessage(UbloxHeader *message);
 void GNSSReciever::update(UbloxHeader *message) {
-  switch(message->messageClass) {
-    case MSG_CLASS_NAV:
-          switch(message->messageId) {
-            case MSG_ID_NAV_POSLLH:  // 34 bytes
-                sendRapidPossitionUpdate((NavPosLLH *) message);
-                break;
-            case MSG_ID_NAV_VELNED: // 36 bytes
-                sendCOGSOG((NavVelNED *) message);
-                break;
-            case MSG_ID_NAV_PVT: // 36 bytes
-                // 129029L, // Position data 1Hz
-                sendPossition((NavPVT *) message);
-                // 127258L, // Magnetic Variation
-                sendMagneticVariation((NavPVT *) message);
-                // 126992L, // System Time, 1Hz
-                sendTimeUTC((NavPVT *) message);
-                break;
-            case MSG_ID_NAV_DOP: // 28 bytes
-                // 129539L, // GNSS DOPs 1Hz
-                sendDOP((NavDOP *) message);
-                break;
-            case MSG_ID_NAV_SAT: // 28 bytes
-                // 129540L, // GNSS Satellites in View
-                sendSatelitesInView((NavSat *) message);
-                break;
-          }
-        break;
-    default:
-        break;
-  }    
+  if ( message->messageClass == MSG_CLASS_NAV) {
+    if (message->messageId == MSG_ID_NAV_POSLLH ) {  // 34 bytes
+        NavPosLLH *possition = (NavPosLLH *) message;
+        gnss.latitude_scaled = possition->latitude_scaled;
+        gnss.longitude_scaled = possition->longitude_scaled;
+        sendRapidPossitionUpdate();
+    } else if (message->messageId == MSG_ID_NAV_VELNED ) { // 36 bytes
+        NavVelNED * velned = (NavVelNED *) message;
+        gnss.sid = 0xff&(velned->iTOW>>2);
+        gnss.heading_scaled = velned->heading_scaled;
+        gnss.ground_speed = velned->ground_speed;
+        sendCOGSOG();
+    } else if (message->messageId == MSG_ID_NAV_PVT ) {// 36 bytes
+        updateGnssFromPVT((NavPVT *) message);
+        // 129029L, // Position data 1Hz
+        sendPossition();
+        // 127258L, // Magnetic Variation
+        sendMagneticVariation();
+        // 126992L, // System Time, 1Hz
+        sendTimeUTC();
+    } else if (message->messageId == MSG_ID_NAV_DOP ) { // 28 bytes
+        NavDOP * dop = (NavDOP *) message;
+        gnss.sid = 0xff&(dop->iTOW>>2);
+        gnss.hdop = (int16_t)dop->hdop;
+        gnss.vdop = (int16_t)dop->vdop;
+        gnss.tdop = (int16_t)dop->tdop;
+        // 129539L, // GNSS DOPs 1Hz
+        sendDOP();
+    } else if (message->messageId == MSG_ID_NAV_SAT ) { // 28 bytes
+        // 129540L, // GNSS Satellites in View
+        sendSatelitesInView((NavSat *) message);
+    } else {
+        console->print("N>?"); 
+        console->println(message->messageId,HEX); 
+    }
+  } else if ( message->messageClass == MSG_CLASS_INF ) {
+    // ignore, when these were decoded the str was not ASCII
+    // always 11 chars long eg HEX 0 0 F9 BD 6C 0 6B 70 0 0 DD
+    // not as per spec which says should be ASCII.
+  } else {
+    console->print("?");
+    console->print(message->messageClass,HEX); 
+    console->print(">?"); 
+    console->println(message->messageId,HEX); 
+    
+  }
 }
 
-void GNSSReciever::sendRapidPossitionUpdate(NavPosLLH *possition) {
+
+
+void GNSSReciever::updateGnssFromPVT(NavPVT * pvt) {
+    gnss.sid = 0xff&(pvt->iTOW>>2);
+    gnss.daysSince1970 = getDaysSince1970(pvt); // uint16_t
+    gnss.secondsSinceMidnight = getSecondsSinceMidnight(pvt);  // uint32_t
+    gnss.lat = pvt->lat;  // 1E-16 units, 1E-16/1E-7=1E9
+    gnss.lon = pvt->lon; // 1E-16 units, 1E-16/1E-7=1E9
+    gnss.height = pvt->height;
+    gnss.fixType = pvt->fixType;
+    calculateVariationDegrees(pvt);
+    gnss.numSV = pvt->numSV;
+    gnss.pdop = (int16_t)pvt->pDOP;    
+    gnss.valid = pvt->valid;
+    gnss.methodType = 0x04;
+    if ( gnss.fixType == 0x01 ) {
+        // dead reckoning
+        gnss.methodType = 0x64;
+        gnss.actualMode = 0; // 1D Fix
+    } else if (gnss.fixType == 0x02 ) {
+        // 2D fix.
+        gnss.methodType = 0x14;
+        gnss.actualMode = 1; // 2D Fix
+    } else if (gnss.fixType == 0x03 ) {
+        // 3D fix
+        gnss.actualMode = 3; // 3D Fix
+        if ( (pvt->flags&0x02) == 0x02 ) {
+            // DGPS used
+            gnss.methodType = 0x24;
+        } else {
+            gnss.methodType = 0x14;
+        }
+    }
+}
+
+
+void GNSSReciever::sendRapidPossitionUpdate() {
     MessageHeader messageHeader(129025L, 2, getAddress(), SNMEA2000::broadcastAddress);
     startPacket(&messageHeader);
     // UBX PosLLM uses the same scales as NMEA2000 1e-7, no conversion required.
-    outputBytes((uint8_t *)&(possition->latitude_scaled),4);   
-    outputBytes((uint8_t *)&(possition->longitude_scaled),4);    
+    outputBytes((uint8_t *)&(gnss.latitude_scaled),4);   
+    outputBytes((uint8_t *)&(gnss.longitude_scaled),4);    
     finishPacket();
 }
 
-void GNSSReciever::sendCOGSOG(NavVelNED *velned) {
+void GNSSReciever::sendCOGSOG() {
     MessageHeader messageHeader(129026L, 2, getAddress(), SNMEA2000::broadcastAddress);
     startPacket(&messageHeader);
-    outputByte(0xff&(velned->iTOW>>2));
+    outputByte(gnss.sid);
     outputByte(0x00 | 0xfc); // 0x00= assuming true cog. M8N doesn't have a declination model.
     // cog needs to be in radians
-    double cogRad = 1.74532925E-7*(velned->heading_scaled);
+    double cogRad = 1.74532925E-7*(gnss.heading_scaled);
     output2ByteDouble(cogRad,0.001);
     // sog is in the correct units already
-    output2ByteInt(velned->ground_speed);
+    output2ByteInt(gnss.ground_speed);
     outputByte(0xff);
     outputByte(0xff);
     finishPacket();
+
 }
-void GNSSReciever::sendPossition(NavPVT *pvt) {
-    if ( (pvt->valid&0x04) == 0x04 ) {
+void GNSSReciever::sendPossition() {
+    if ( (gnss.valid&0x04) == 0x04 ) {
         // only send the possition if data is fully resolved.
         MessageHeader messageHeader(129029L, 3, getAddress(), SNMEA2000::broadcastAddress);
         startFastPacket(&messageHeader, 43);
-        outputByte(0xff&(pvt->iTOW>>2));
-        output2ByteUInt(getDaysSince1970(pvt));
-        uint32_t secondsSinceMidnight = getSecondsSinceMidnight(pvt);
-        outputBytes((uint8_t *)(&secondsSinceMidnight),4);
+        outputByte(gnss.sid);
+        output2ByteUInt(gnss.daysSince1970);
+        outputBytes((uint8_t *)(&gnss.secondsSinceMidnight),4);
         OpBuf op;
-        op.i64 = (int64_t)1E9*(int64_t)pvt->lat;  // 1E-16 units, 1E-16/1E-7=1E9
+        op.i64 = (int64_t)1E9*(int64_t)gnss.lat;  // 1E-16 units, 1E-16/1E-7=1E9
         outputBytes(&op.buf[0],8);  
-        op.i64 = (int64_t)1E9*(int64_t)pvt->lon; // 1E-16 units, 1E-16/1E-7=1E9
+        op.i64 = (int64_t)1E9*(int64_t)gnss.lon; // 1E-16 units, 1E-16/1E-7=1E9
         outputBytes(&op.buf[0],8);  
-        op.i64 = (int64_t)1E3*(int64_t)pvt->height;  // 1E-6 units, 1E-6/1E-3 = 1E-3 
+        op.i64 = (int64_t)1E3*(int64_t)gnss.height;  // 1E-6 units, 1E-6/1E-3 = 1E-3 
         outputBytes(&op.buf[0],8);  
         // type = GPS SBAS WAAS GLOLONASS (+Galeleo) 4 is closest
         // method == GNSS (0x10) if 3D Fix is available, otherwise no fix  (0x00)
-        uint8_t methodType = 0x04;
-        if ( pvt->fixType == 0x01 ) {
-            // dead reconing
-            methodType = 0x64;
-            actualMode = 0; // 1D Fix
-        } else if (pvt->fixType == 0x02 ) {
-            // 2D fix.
-            methodType = 0x14;
-            actualMode = 1; // 2D Fix
-        } else if (pvt->fixType == 0x03 ) {
-            // 3D fix
-            actualMode = 3; // 3D Fix
-            if ( (pvt->flags&0x02) == 0x02 ) {
-                // DGPS used
-                methodType = 0x24;
-            } else {
-                methodType = 0x14;
-            }
-        }
 
-        outputByte(methodType);
+        outputByte(gnss.methodType);
         outputByte(1 | 0xfc);  // Integrity 2 bit, reserved 6 bits
-        outputByte(pvt->numSV);
-        output2ByteInt(hdop);
-        output2ByteInt(pdop);
+        outputByte(gnss.numSV);
+        output2ByteInt(gnss.hdop);
+        output2ByteInt(gnss.pdop);
         op.i32 = 0;
         outputBytes(&op.buf[0],4); // geoidal separation, set to 0.
         outputByte(0); // no reference stations as not using RTK mode
         finishFastPacket();
     } else {
-        actualMode = 7; // fix not available.
+        gnss.actualMode = 7; // fix not available.
     }
 }
-void GNSSReciever::sendMagneticVariation(NavPVT *pvt) {
-    if ( (pvt->valid&0x04) == 0x04 ) {
+void GNSSReciever::sendMagneticVariation() {
+    if ( (gnss.valid&0x04) == 0x04 ) {
         // need a fully resolved fix to calculate the variation.
         // variation is not available from standard precision Neo M8N modules.
         MessageHeader messageHeader(127258L, 6, getAddress(), SNMEA2000::broadcastAddress);
-        outputByte(0xff&(pvt->iTOW>>2));
+        startPacket(&messageHeader);
+        outputByte(gnss.sid);
         outputByte(0x08); // WMN2020
-        output2ByteUInt(getDaysSince1970(pvt));
-        output2ByteDouble(calculateVariationRadians(pvt),0.0001);
+        output2ByteUInt(gnss.daysSince1970);
+        output2ByteDouble(gnss.variation*0.01745329251,0.0001);
         outputByte(0xff);
         outputByte(0xff);
         finishPacket();
     }
 }
 
-void GNSSReciever::sendTimeUTC(NavPVT *pvt) {
-    if ( (pvt->valid&0x04) == 0x04 || (pvt->valid&0x02) == 0x02 ) {
+void GNSSReciever::sendTimeUTC() {
+    if ( (gnss.valid&0x04) == 0x04 || (gnss.valid&0x02) == 0x02 ) {
         // date and time valid.
         MessageHeader messageHeader(126992L, 6, getAddress(), SNMEA2000::broadcastAddress);
-        outputByte(0xff&(pvt->iTOW>>2));
+        startPacket(&messageHeader);
+        outputByte(gnss.sid);
         outputByte(0xf0); // 0=GPS source
-        output2ByteUInt(getDaysSince1970(pvt));
-        output2ByteDouble(calculateVariationRadians(pvt),0.0001);
+        output2ByteUInt(gnss.daysSince1970);
+        output2ByteDouble(gnss.variation*0.01745329251,0.0001);
         finishPacket();
     }
 }
@@ -157,6 +193,7 @@ void GNSSReciever::sendSatelitesInView(NavSat *sat) {
     // range residuals are after
     outputByte(0xfc | 0x01);
     outputByte(sat->numSvs);
+    gnss.numSvu = 0;
     for (int i = 0; i < sat->numSvs; i++) {
         outputByte(sat->satelites[i].svId);
         output2ByteDouble(((float)M_PI/180)*sat->satelites[i].elev, 0.0001);
@@ -168,6 +205,7 @@ void GNSSReciever::sendSatelitesInView(NavSat *sat) {
         bool hasDiff = ((sat->satelites[i].flags & 0x40) == 0x40);
         if ((sat->satelites[i].flags & 0x08) == 0x08 ) {
             // used.
+            gnss.numSvu++;
             if ( (sat->satelites[i].flags & 0x40) == 0x40 ) {
                 usage = 5; // with diff
             } else {
@@ -185,36 +223,44 @@ void GNSSReciever::sendSatelitesInView(NavSat *sat) {
         }
         outputByte(0xf0 | usage);
     }
+    finishFastPacket();
 }
 
 
-void GNSSReciever::sendDOP(NavDOP *dop) {
+void GNSSReciever::sendDOP() {
     //129539L
     MessageHeader messageHeader(129539L, 6, getAddress(), SNMEA2000::broadcastAddress);
-    outputByte(0xff&(dop->iTOW>>2));
+    startPacket(&messageHeader);
+    outputByte(gnss.sid);
 
     // desired mode is 3D == 2, actualMode depends on last fix.
-    outputByte(((2 & 0x07) << 5) | ((actualMode & 0x07) << 2));
-    hdop = (int16_t)dop->hdop;
-    output2ByteInt(hdop); // 0.01
-    output2ByteInt((int16_t)dop->vdop); // 0.01
-    output2ByteInt((int16_t)dop->tdop); // 0.01  
+    outputByte(((2 & 0x07) << 5) | ((gnss.actualMode & 0x07) << 2));
+    output2ByteInt(gnss.hdop); // 0.01
+    output2ByteInt(gnss.vdop); // 0.01
+    output2ByteInt(gnss.tdop); // 0.01  
     finishPacket();
 }
 
-float GNSSReciever::calculateVariationRadians(NavPVT *pvt) {
+void GNSSReciever::calculateVariationDegrees(NavPVT *pvt) {
     unsigned long now = millis();
-    if ( now > lastVariationCalc + 60000) {
+    if ( now > lastVariationCalc + 60000L) {
+        lastVariationCalc = now;
         float lat = 1.0E-7*(pvt->lat);
         float lon = 1.0E-7*(pvt->lon);
         float height = 0.0;     // sea level
         float dyear = decimalYear(pvt);
         geomag::Vector position = geomag::geodetic2ecef(lat,lon,height);
+        console->println(millis()-now);
         geomag::Vector mag_field = geomag::GeoMag(dyear,position,geomag::WMM2020);
+        console->println(millis()-now);
         geomag::Elements out = geomag::magField2Elements(mag_field, lat, lon);
-        variation = ((float) M_PI/180.0) * out.declination;
+        console->println(millis()-now);
+        gnss.variation = out.declination;
+        console->print(F("Variation:"));
+        console->print(gnss.variation);
+        console->print(F(" ms:"));
+        console->println(millis()-now);
     }
-    return variation;
 }
 
 uint16_t GNSSReciever::getDaysSince1970(NavPVT *pvt) {

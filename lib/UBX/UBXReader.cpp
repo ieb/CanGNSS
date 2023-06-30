@@ -4,12 +4,6 @@
 #define ubloxDevice Serial
 
 
-#ifdef CONFIGURE_DEVICE
-const uint32_t BAUDS[] = {
-    38400, 57600, 115200,  9600,  4800, 19200
-};
-#define NUM_BAUDS 6
-#endif
 
 /**
  * Call the UBX reader with a list of UbxMessageTypes
@@ -27,8 +21,13 @@ bool UBXReader::begin(uint16_t baudRate) {
 #ifndef CONFIGURE_DEVICE
     console->println(F("ublox must be pre configured and running 19200 8-N-1"));
     ubloxDevice.begin(baudRate);
-    console->print(F("Trying 19200 baud"));
-    return detectTraffic();
+    console->print(F("Trying 19200 baud with rx buffer "));
+    console->print(SERIAL_RX_BUFFER_SIZE);
+    if ( detectTraffic() ) {
+        return true;
+    } else {
+        return false;
+    }
 #else
     return configureDevice(baudRate);
 #endif
@@ -60,8 +59,9 @@ bool UBXReader::detectTraffic() {
     return false;
 }
 
-
 #ifdef CONFIGURE_DEVICE
+
+
 // Only required were the device is not pre configured.
 // removed to save progmem space
 
@@ -70,13 +70,16 @@ bool UBXReader::configureDevice(uint16_t baudRate) {
     // to match what is required.
     bool setupDone = false;
     uint8_t baudId = 0;
+    uint32_t bauds[] = { 38400, 57600, 115200,  9600,  4800, 19200};
+    uint8_t nbauds = 6;
+
     while(!setupDone) {
         baudId = 0;
         bool detecting = true;
-        for (; baudId < NUM_BAUDS; baudId++) {
-            ubloxDevice.begin(BAUDS[baudId]);
+        for (; baudId < nbauds; baudId++) {
+            ubloxDevice.begin(bauds[baudId]);
             console->print(F("Trying "));
-            console->print(BAUDS[baudId]);
+            console->print(bauds[baudId]);
 
             if ( detectTraffic() ) {
                 detecting = false;
@@ -93,7 +96,7 @@ bool UBXReader::configureDevice(uint16_t baudRate) {
             console->println(F(" Ublox device not detected at any baud"));
             return false;
         }
-        if ( BAUDS[baudId] != baudRate ) {
+        if ( bauds[baudId] != baudRate ) {
             // reconfigure to baudID 0, and restart.
             CfgUart cfgUart = {
                 ULBOX_SYNC1,
@@ -258,12 +261,12 @@ void UBXReader::setupSatelites() {
 
 #endif
 
-
 /**
  * read messages and call back with any message detected from the UbxMessageTypes
  * Configured.
  */
 eUbloxMessageStatus UBXReader::read() {
+    metrics.readCalls++;
     while (ubloxDevice.available() > 0) {
         uint8_t c = ubloxDevice.read();
 #ifdef DEBUG
@@ -291,18 +294,34 @@ eUbloxMessageStatus UBXReader::read() {
                 pos = 0;                
             } 
         } else if ( pos >= sizeof(UbloxHeader) ) {
+            // not supporting messages larger than 2K, so 
+            // assume thats a corruption and scan for the next message
+            if ( ubloxHeader->payloadLength > 2048 ) {
+                    metrics.messageOverflow++;
+                    pos = 0;
+                    return msgStatusOverflow;                
+            }
             if ( pos == (sizeof(UbloxHeader) + ubloxHeader->payloadLength + 2) ) {
-                pos = 0;
                 metrics.messageRecieved++;
                 if ( pos < maxBufferSize ) {
                     if ( isChecksumCorrect() ) {
+                        pos = 0;
+                        if ( ubloxHeader->messageClass == MSG_CLASS_ACK ) {
+                            if (ubloxHeader->messageId == MSG_ID_ACK_ACK) {
+                                return msgAck;
+                            } else if (ubloxHeader->messageId == MSG_ID_ACK_NAK ) {
+                                return msgNak;
+                            }
+                        }
                         return msgStatusOk;
                     } else {
                         metrics.messageError++;
+                        pos = 0;
                         return msgStatusBadCheckSum;
                     }
                 } else {
                     metrics.messageOverflow++;
+                    pos = 0;
                     return msgStatusOverflow;
                 }
             }
@@ -312,7 +331,6 @@ eUbloxMessageStatus UBXReader::read() {
 }
 
 
-#ifdef DEBUG
 void UBXReader::dumpBufferHex(uint8_t * buffer, uint16_t len) {
     for(uint16_t i = 0; i < len; i++) {
         if (buffer[i] < 16) {
@@ -321,9 +339,11 @@ void UBXReader::dumpBufferHex(uint8_t * buffer, uint16_t len) {
             console->print(F(" 0x"));
         }
         console->print(buffer[i],HEX);
+        if (i%20 == 19) {
+            console->println("");
+        }
     }
 }
-#endif
 
 UbloxHeader *  UBXReader::getMessage() {
     return ubloxHeader;
@@ -333,7 +353,31 @@ bool UBXReader::isChecksumCorrect() {
   uint8_t b[] = {0,0};
   calculateChecksum(ubloxHeader, &b[0]);
   uint16_t messageLength =  ubloxHeader->payloadLength + sizeof(UbloxHeader);
-  return (b[0] == packetBuffer[messageLength] && b[1] == packetBuffer[messageLength+1]);
+  if (b[0] == packetBuffer[messageLength] && b[1] == packetBuffer[messageLength+1]) {
+    return true;
+  } else {
+    // bad checksum.
+    console->print(F("Bad Checksum payloadlen:"));
+    console->print(ubloxHeader->payloadLength);
+    console->print(F(" chkidx:"));
+    console->print(messageLength);
+    console->print(F(" state:"));
+    console->print(ubloxDevice.getStatus(),HEX);
+    console->print(F(" pos:"));
+
+    console->println(pos);
+    console->print(F("0x"));
+    console->print(b[0],HEX);
+    console->print(F(" 0x"));
+    console->println(b[1],HEX);
+    console->print(F("0x"));
+    console->print(packetBuffer[messageLength],HEX);
+    console->print(F(" 0x"));
+    console->println(packetBuffer[messageLength+1],HEX);
+    dumpBufferHex(packetBuffer, messageLength+2);
+    console->println("");
+    return false;
+  }
 }
 
 void UBXReader::calculateChecksum(UbloxHeader *message, uint8_t *op) {

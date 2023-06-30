@@ -90,7 +90,7 @@ GNSSReciever gnssReciever = GNSSReciever(DEVICE_ADDRESS,
 
 CommandLine commandLine = CommandLine(&console, &gnssReciever);
 
-#define MESSAGE_BUFFER_SIZE 128
+#define MESSAGE_BUFFER_SIZE 512
 uint8_t messageBuffer[MESSAGE_BUFFER_SIZE];
 UBXReader ubxReader(&console, &messageBuffer[0], MESSAGE_BUFFER_SIZE);
 
@@ -106,8 +106,9 @@ void setDiagnostics(bool enabled) {
 }
 
 
+
 void setup() {
-  console.begin(34800);
+  console.begin(115200);
   console.println(F("GNSS Receiver start"));
   commandLine.begin();
 
@@ -128,58 +129,121 @@ void setup() {
 }
 
 void dumpMessage(UbloxHeader *message) {
+  static uint16_t lastReadCalls = 0;
+  static uint16_t lastBytesRead = 0;
   console.print(F("cls: 0x"));
   console.print(message->messageClass, HEX);
   console.print(F(" id: 0x"));
   console.print(message->messageId, HEX);
-  console.print(F(" len: 0x"));
-  console.println(message->payloadLength);  
+  console.print(F(" len: "));
+  console.print(message->payloadLength);  
+  console.print(F(" state:"));
+  console.print(Serial.getStatus(),HEX);
+  console.print(F(" reads:"));
+  UBXReaderMetrics * metrics = ubxReader.getMetrics();
+  uint16_t reads = metrics->readCalls-lastReadCalls;
+  lastReadCalls = metrics->readCalls;
+  console.print(reads);
+  console.print(F(" readsize:"));
+  if ( reads > 0) {
+    uint16_t readSize = (metrics->bytesRead-lastBytesRead)/reads;
+    console.println(readSize);
+  } else {
+    console.println(F("n/a"));
+  }
+  lastBytesRead = metrics->bytesRead;
 }
 void dumpMetrics() {
   static unsigned long tnext = 0;
   unsigned long now = millis();
   if ( now > tnext ) {
-    tnext = now + 5000;
     UBXReaderMetrics * metrics = ubxReader.getMetrics();
+    tnext = now + 5000;
     console.print(F("metrics bread:"));
     console.print(metrics->bytesRead);
-    console.print(F(" metrics restarts: "));
+    console.print(F(" restarts: "));
     console.print(metrics->bufferRestarts);
-    console.print(F(" metrics received: "));
+    console.print(F(" received: "));
     console.print(metrics->messageRecieved);
-    console.print(F(" metrics errors: "));
+    console.print(F(" errors: "));
     console.print(metrics->messageError);
-    console.print(F(" metrics overflow: "));
+    console.print(F(" overflow: "));
     console.println(metrics->messageOverflow);
   }
 
 }
 
+void dumpFix() {
+  static unsigned long tnext = 0;
+  unsigned long now = millis();
+  if ( now > tnext ) {
+    GNSSFix  * fix = gnssReciever.getFix();
+
+    tnext = now + 2000;
+    console.print(F("fix lat:"));
+    console.print(fix->lat);
+    console.print(F(" lon:"));
+    console.print(fix->lon);
+    console.print(F(" cog:"));
+    console.print(fix->heading_scaled);
+    console.print(F(" sog:"));
+    console.print(fix->ground_speed);
+    console.print(F(" sats:"));
+    console.print(fix->numSvu);
+    console.print(F(" pdop:"));
+    console.println(fix->pdop);
+  }
+}
+
+
+
 
 
 void loop() {
+  static uint16_t calls = 0;
+  calls++;
   eUbloxMessageStatus status = ubxReader.read();
   UbloxHeader * message = ubxReader.getMessage();
   switch(status) {
     case msgStatusOk:
-      console.print(F("Ok clsID:"));
-      dumpMessage(message);
+      if ( diagnostics || calls < 5) {
+        console.print(calls);
+        console.print(F(" Ok"));
+        dumpMessage(message);      
+      }
       gnssReciever.update(message);
+      calls = 0;
       break;
     case msgStatusBadCheckSum:
-      console.print(F("Bad checksum "));
+      console.print(calls);
+      console.println(F(" Bad checksum "));
       dumpMessage(message);
+      calls = 0;
       break;
     case msgStatusOverflow:
-      console.print(F("Overflow "));
-      dumpMessage(message);
+      console.print(calls);
+      console.println(F(" Overflow "));
+      //dumpMessage(message);
+      calls = 0;
+      break;
+    case msgAck:
+      console.print(calls);
+      console.println(F(" ACK"));
+      calls = 0;
+      break;
+    case msgNak:
+      console.print(calls);
+      console.println(F(" NAK"));
+      calls = 0;
       break;
     case msgIncomplete:
+//      console.print(".");
       break;
   }
-  dumpMetrics();
   gnssReciever.processMessages();
   commandLine.checkCommand();
+  dumpFix();
+  dumpMetrics();
 }
 
 

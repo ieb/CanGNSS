@@ -9,7 +9,9 @@ enum eUbloxMessageStatus {
     msgStatusOk = 0,
     msgStatusBadCheckSum = 1,
     msgStatusOverflow = 2,
-    msgIncomplete = 3
+    msgIncomplete = 3,
+    msgAck = 4,
+    msgNak = 5
 };
 
 typedef struct _UBXReaderMetrics {
@@ -18,6 +20,7 @@ typedef struct _UBXReaderMetrics {
     uint16_t messageRecieved = 0;
     uint16_t messageError = 0;
     uint16_t messageOverflow = 0;
+    uint16_t readCalls = 0;
 } UBXReaderMetrics;
 /**
  * A reader for UBX messages
@@ -61,14 +64,14 @@ private:
     bool isChecksumCorrect();
     void calculateChecksum(UbloxHeader *message, uint8_t *op);
     bool detectTraffic();
-#ifdef CONFIGURE_DEVICE
     void sendMessage(UbloxHeader *message);
+    void dumpBufferHex(uint8_t * buffer, uint16_t len);
+
+#ifdef CONFIGURE_DEVICE
+    bool configureDevice(uint16_t baudRate);
     void setMessageRate(uint8_t cls, uint8_t id, uint8_t rate);
     void setNavRate(uint16_t measMs, uint16_t measCycles, uint16_t ref);
     void setupSatelites();
-#endif
-#ifdef DEBUG
-    void dumpBufferHex(uint8_t * buffer, uint16_t len);
 #endif
 
 };
