@@ -28,6 +28,7 @@ will be skipped.
 #endif
 
 SoftwareSerial console(SOFT_RX_PIN, SOFT_TX_PIN);
+Print *consolePtr = &console;
 
 
 const SNMEA2000ProductInfo productInfomation PROGMEM={
@@ -88,7 +89,7 @@ GNSSReciever gnssReciever = GNSSReciever(DEVICE_ADDRESS,
 );
 
 
-CommandLine commandLine = CommandLine(&console, &gnssReciever);
+CommandLine commandLine = CommandLine(&console);
 
 #define MESSAGE_BUFFER_SIZE 512
 uint8_t messageBuffer[MESSAGE_BUFFER_SIZE];
@@ -99,11 +100,24 @@ UBXReader ubxReader(&console, &messageBuffer[0], MESSAGE_BUFFER_SIZE);
 
 
 
-bool diagnostics = false;
-void setDiagnostics(bool enabled) {
-  gnssReciever.setDiagnostics(enabled);
-  diagnostics = enabled;
+uint8_t diagnostics = 0;
+#define INFO_ENABLED  (diagnostics > 0)
+#define DEBUG_ENABLED  (diagnostics > 1)
+
+void changeDiagnostics() {
+  diagnostics = (diagnostics+1)%3;
+  if ( DEBUG_ENABLED ) {
+    console.println(F("DEBUG ON"));
+    gnssReciever.setDiagnostics(true);
+  } else if (INFO_ENABLED) {
+    console.println(F("INFO ON"));
+    gnssReciever.setDiagnostics(false);
+  } else {
+    console.println(F("INFO OFF"));
+    gnssReciever.setDiagnostics(false);
+  }
 }
+
 
 
 
@@ -112,18 +126,24 @@ void setup() {
   console.println(F("GNSS Receiver start"));
   commandLine.begin();
 
+  // required to avoid an error initialising the can bus.
+  pinMode(SNMEA_SPI_CS_PIN, OUTPUT);
+
   // If PA7 is pulled high, then the 
   // device starts up emitting serial messages on RX1/TX1
   // pin X low then the device starts with the Can device using SPI.
   gnssReciever.setSerialNumber(DEVICE_SERIAL_NUMBER);
   gnssReciever.setDeviceAddress(DEVICE_ADDRESS);
   gnssReciever.open();
-  /*
-  while ( !gnssReciever.open() ) {
-    console.print(F("Failed to start CAN"));
+  int retries = 0;
+  while ( retries < 5 && !gnssReciever.open() ) {
+    console.println(F("Failed to start CAN, retrying in 5s"));
     delay(5000);
+    retries++;
   }
-  */
+  if ( retries == 5 ) {
+    console.println(F("Failed to start CAN, no CAN"));
+  }
   ubxReader.begin();
   console.println(F("Running..."));
 }
@@ -153,11 +173,13 @@ void dumpMessage(UbloxHeader *message) {
   }
   lastBytesRead = metrics->bytesRead;
 }
-void dumpMetrics() {
+
+void dumpMetrics(bool force) {
   static unsigned long tnext = 0;
   unsigned long now = millis();
-  if ( now > tnext ) {
+  if ( force || now > tnext ) {
     UBXReaderMetrics * metrics = ubxReader.getMetrics();
+    GNSSMetrics * gnssMetrics = gnssReciever.getMetrics();
     tnext = now + 5000;
     console.print(F("metrics bread:"));
     console.print(metrics->bytesRead);
@@ -168,15 +190,52 @@ void dumpMetrics() {
     console.print(F(" errors: "));
     console.print(metrics->messageError);
     console.print(F(" overflow: "));
-    console.println(metrics->messageOverflow);
+    console.print(metrics->messageOverflow);
+    console.print(F(" posllh: "));
+    console.print(gnssMetrics->posllh);
+    console.print(F(" velned: "));
+    console.print(gnssMetrics->velned);
+    console.print(F(" pvt: "));
+    console.print(gnssMetrics->pvt);
+    console.print(F(" dop: "));
+    console.print(gnssMetrics->dop);
+    console.print(F(" sat: "));
+    console.print(gnssMetrics->sat);
+    console.print(F(" unknown: "));
+    console.println(gnssMetrics->unknown);
   }
 
 }
 
-void dumpFix() {
+/*
+typedef struct _GNSSFix {
+    uint8_t sid;
+    uint8_t fixType;
+    uint8_t methodType;
+    uint8_t actualMode;
+    uint8_t valid;
+    uint8_t numSV;
+    uint8_t numSvu;
+    int16_t pdop;
+    int16_t hdop;
+    int16_t vdop;
+    int16_t tdop;
+    uint16_t daysSince1970;
+    uint32_t secondsSinceMidnight;
+    int32_t lat;
+    int32_t lon;
+    int32_t height;
+    int32_t latitude_scaled;
+    int32_t longitude_scaled;
+    int32_t heading_scaled;
+    uint32_t ground_speed;
+    float variation;
+} GNSSFix;
+*/
+void dumpFix(bool force) {
   static unsigned long tnext = 0;
   unsigned long now = millis();
-  if ( now > tnext ) {
+  if ( force || now > tnext ) {
     GNSSFix  * fix = gnssReciever.getFix();
 
     tnext = now + 2000;
@@ -191,12 +250,21 @@ void dumpFix() {
     console.print(F(" sats:"));
     console.print(fix->numSvu);
     console.print(F(" pdop:"));
-    console.println(fix->pdop);
+    console.print(fix->pdop);
+    console.print(F(" daysSince1970:"));
+    console.print(fix->daysSince1970);
+    console.print(F(" height:"));
+    console.println(fix->height);
   }
 }
 
 
 
+void dumpStatus() {
+  gnssReciever.dumpStatus();
+  dumpMetrics(true);
+  dumpFix(true);
+}
 
 
 void loop() {
@@ -206,7 +274,7 @@ void loop() {
   UbloxHeader * message = ubxReader.getMessage();
   switch(status) {
     case msgStatusOk:
-      if ( diagnostics || calls < 5) {
+      if ( DEBUG_ENABLED ) {
         console.print(calls);
         console.print(F(" Ok"));
         dumpMessage(message);      
@@ -242,8 +310,10 @@ void loop() {
   }
   gnssReciever.processMessages();
   commandLine.checkCommand();
-  dumpFix();
-  dumpMetrics();
+  if ( INFO_ENABLED ) {
+    dumpMetrics(false);    
+    dumpFix(false);
+  }
 }
 
 

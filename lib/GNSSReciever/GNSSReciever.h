@@ -93,6 +93,16 @@ typedef struct _GNSSFix {
     float variation;
 } GNSSFix;
 
+typedef struct _GNSSMetrics {
+    uint16_t posllh = 0;
+    uint16_t velned = 0;
+    uint16_t pvt = 0;
+    uint16_t dop = 0;
+    uint16_t sat = 0;
+    uint16_t unknown = 0;
+} GNSSMetrics;
+
+
 class GNSSReciever : public SNMEA2000 {
     public:
       GNSSReciever(byte addr,
@@ -109,8 +119,13 @@ class GNSSReciever : public SNMEA2000 {
     GNSSFix * getFix() {
         return &gnss;
     };
+    GNSSMetrics * getMetrics() {
+        return &metrics;
+    }
 private:
     GNSSFix gnss;
+    GNSSMetrics metrics;
+    bool cogSent = false;
     unsigned long lastVariationCalc = 0;
     void updateGnssFromPVT(NavPVT * pvt);
     void sendRapidPossitionUpdate();
