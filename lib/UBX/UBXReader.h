@@ -65,6 +65,7 @@ private:
     void calculateChecksum(UbloxHeader *message, uint8_t *op);
     bool detectTraffic();
     void sendMessage(UbloxHeader *message);
+    void switchBaudRate(uint32_t toBaud);
     void dumpBufferHex(uint8_t * buffer, uint16_t len);
 
 #ifdef CONFIGURE_DEVICE

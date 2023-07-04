@@ -19,13 +19,20 @@ UBXReader::UBXReader(Stream * console, uint8_t * buffer, uint16_t len) {
 
 bool UBXReader::begin(uint16_t baudRate) {
 #ifndef CONFIGURE_DEVICE
-    console->println(F("ublox must be pre configured and running 19200 8-N-1"));
+    console->println(F("ublox must be pre configured and running 56700 or 19200 8-N-1"));
     ubloxDevice.begin(baudRate);
-    console->print(F("Trying 19200 baud with rx buffer "));
+    console->print(F("Trying "));
+    console->print(baudRate);
+    console->print(F(" baud with rx buffer "));
     console->print(SERIAL_RX_BUFFER_SIZE);
+    // seems to be reliable at 19200, but not 56700.
+    // need to flash to 19200 and this w
+    switchBaudRate(19200);
     if ( detectTraffic() ) {
+        console->println(F("Now at 19200 baud"));
         return true;
     } else {
+        console->println(F("Failed at 19200 baud"));
         return false;
     }
 #else
@@ -59,6 +66,35 @@ bool UBXReader::detectTraffic() {
     return false;
 }
 
+void UBXReader::switchBaudRate(uint32_t toBaud) {
+    CfgUart cfgUart = {
+            ULBOX_SYNC1,
+            ULBOX_SYNC2,
+            MSG_CLASS_CFG, 
+            MSG_ID_CFG_PRT, 
+            (uint16_t) 20, 
+            0x01, // UART1 
+            0xff, // reserved
+            (uint16_t) 0x00, // txReady disabled.
+            (uint32_t) 0x000008C0, // 8-N-1
+            (uint32_t) toBaud,
+            (uint16_t) 3, // 3  ubx + nemea
+            (uint16_t) 3, // 3  ubx + nemea
+            (uint16_t) 0x0000, // 0 , no extended tx buffer.
+            0xff, // reserved
+            0xff, // reserved
+            0x01,
+            0x02
+        };
+    calculateChecksum(&(cfgUart.header), &(cfgUart.checksum[0]));
+    ubloxDevice.write((uint8_t *)&cfgUart, sizeof(cfgUart));
+    ubloxDevice.flush();
+    delay(1000);
+    ubloxDevice.end();
+    delay(1000);
+    
+    ubloxDevice.begin(toBaud);
+}
 #ifdef CONFIGURE_DEVICE
 
 
@@ -98,6 +134,7 @@ bool UBXReader::configureDevice(uint16_t baudRate) {
         }
         if ( bauds[baudId] != baudRate ) {
             // reconfigure to baudID 0, and restart.
+
             CfgUart cfgUart = {
                 ULBOX_SYNC1,
                 ULBOX_SYNC2,
@@ -157,6 +194,8 @@ bool UBXReader::configureDevice(uint16_t baudRate) {
     return true;
 
 }
+
+
 
 void UBXReader::setMessageRate(uint8_t cls, uint8_t id, uint8_t rate) {
     CfgMsg messageRate = {

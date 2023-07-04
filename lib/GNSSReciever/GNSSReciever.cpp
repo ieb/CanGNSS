@@ -305,18 +305,9 @@ void GNSSReciever::calculateVariationDegrees(NavPVT *pvt) {
         float height = 0.0;     // sea level
         float dyear = decimalYear(pvt);
         geomag::Vector position = geomag::geodetic2ecef(lat,lon,height);
-        console->println(millis()-now);
         geomag::Vector mag_field = geomag::GeoMag(dyear,position,geomag::WMM2020);
-        console->println(millis()-now);
         geomag::Elements out = geomag::magField2Elements(mag_field, lat, lon);
-        console->println(millis()-now);
         gnss.variation = out.declination;
-        console->print(F("Variation:"));
-        console->print(gnss.variation);
-        console->print(F(" dyear:"));
-        console->print(dyear);
-        console->print(F(" ms:"));
-        console->println(millis()-now);
     }
 }
 

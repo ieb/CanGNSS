@@ -144,7 +144,7 @@ void setup() {
   if ( retries == 5 ) {
     console.println(F("Failed to start CAN, no CAN"));
   }
-  ubxReader.begin();
+  ubxReader.begin(57600);
   console.println(F("Running..."));
 }
 
