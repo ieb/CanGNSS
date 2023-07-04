@@ -25,3 +25,6 @@ Magnetic variation is calculated every 60s from WMN2020 World model coefficients
 
 Starts up, establishes CAN connectivity then reads UBX messages as they are produced and transfers them directly onto the NMEA200 bus.  There is a monitoring UART that runs at 115200 which can be used to see log messages and reboot. Press h to get a menu. The WNM2020 model takes 63ms to calculate which is long enough for a standard 64 byte UART buffer to overflow. This code requires a patched megaTinyCode code base with a 256 byte UART buffer.
 
+
+![](images/board.jpg)
+
