@@ -96,7 +96,13 @@ uint8_t messageBuffer[MESSAGE_BUFFER_SIZE];
 UBXReader ubxReader(&console, &messageBuffer[0], MESSAGE_BUFFER_SIZE);
 
 
+void factoryReset() {
+  ubxReader.factoryReset();
+}
 
+void saveConfig() {
+  ubxReader.saveConfig();
+}
 
 
 

@@ -8,7 +8,8 @@
 // symbols from main.cpp so we dont have to get complicated.
 extern void changeDiagnostics();
 extern void dumpStatus();
-
+extern void factoryReset();
+extern void saveConfig();
 
 
 
@@ -30,6 +31,8 @@ class CommandLine {
                     case 's': showStatus(); break;
                     case 'R': doReset(); break;
                     case 'd': changeDiagnostics(); break;
+                    case 'F': factoryReset(); break;
+                    case 'S': saveConfig(); break;
                 }
             }
         };
@@ -54,6 +57,8 @@ class CommandLine {
             io->println(F("  - 's' show status"));
             io->println(F("  - 'd' change diagnostics"));
             io->println(F("  - 'R' reset"));
+            io->println(F("  - 'F' factory reset"));
+            io->println(F("  - 'S' save config"));
         };
 
         

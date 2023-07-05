@@ -217,6 +217,14 @@ struct CfgMsg {
     uint8_t rates[6];
     uint8_t checksum[2];
 });
+PACK(
+    struct CfgAck {
+        UbloxHeader header;
+        uint8_t messageClass;
+        uint8_t messageId;
+        uint8_t checksum[2];
+    }
+);
 
 PACK(
 struct CfgRate {

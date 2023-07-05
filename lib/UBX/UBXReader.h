@@ -52,6 +52,8 @@ public:
         return &metrics;
     }
     bool begin(uint16_t baudRate=19200);
+    void factoryReset();
+    void saveConfig();
 
 private:
     Stream * console;
@@ -67,12 +69,17 @@ private:
     void sendMessage(UbloxHeader *message);
     void switchBaudRate(uint32_t toBaud);
     void dumpBufferHex(uint8_t * buffer, uint16_t len);
+    void dumpMessage(UbloxHeader *message, bool withPayload=true);
 
-#ifdef CONFIGURE_DEVICE
-    bool configureDevice(uint16_t baudRate);
-    void setMessageRate(uint8_t cls, uint8_t id, uint8_t rate);
-    void setNavRate(uint16_t measMs, uint16_t measCycles, uint16_t ref);
-    void setupSatelites();
-#endif
+    bool expectAck(uint8_t clss, uint8_t id, bool verbose=false);
+    bool expect(uint8_t clss, uint8_t id, bool verbose=false);
+    bool sendConfig(uint8_t * msg, uint16_t len, bool verbose=false);
+
+    bool setupSatelites();
+    bool setMessageRate(uint8_t cls, uint8_t id, uint8_t rate);
+    bool setNavRate(uint16_t measMs, uint16_t measCycles, uint16_t ref);
+
+    bool autoBaud();
+    void printResult(bool r);
 
 };
