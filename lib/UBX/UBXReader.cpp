@@ -17,8 +17,17 @@ UBXReader::UBXReader(Stream * console, uint8_t * buffer, uint16_t len) {
 
 //#define CONFIGURE_DEVICE 1
 
+void UBXReader::end() {
+    ubloxDevice.end();
+    // disable the pins by making them input pins.
+    pinMode(PIN_PB2, INPUT);
+    pinMode(PIN_PB3, INPUT);
+    enabled = false;
+}
+
 bool UBXReader::begin(uint16_t baudRate) {
     console->println(F("ublox must be pre configured and running 19200 8-N-1"));
+
     ubloxDevice.begin(19200);
     console->print(F("Trying "));
     console->print(19200);
@@ -26,6 +35,7 @@ bool UBXReader::begin(uint16_t baudRate) {
     console->println(SERIAL_RX_BUFFER_SIZE);
     if ( detectTraffic() ) {
         console->println(F("Ok"));
+        enabled = true;
         return true;
     } else {
         console->println(F("not 19200, press F to reset"));
@@ -42,6 +52,11 @@ void UBXReader::printResult(bool r) {
 }
 
 void UBXReader::factoryReset() {
+    if ( !enabled ) {
+
+        console->println(F("Not enabled"));
+        return;
+    }
     // autobaud until we find the current baudrate
     if (autoBaud() ) {
         read(); // clear messages that were pending
@@ -62,9 +77,9 @@ void UBXReader::factoryReset() {
         console->print(F("PVT 1Hz "));
         printResult(setMessageRate(MSG_CLASS_NAV, MSG_ID_NAV_PVT, 5)); // 1Hz
         console->print(F("DOP 1Hz "));
-        printResult(setMessageRate(MSG_CLASS_NAV, MSG_ID_NAV_DOP, 5)); // 1Hz
+        printResult(setMessageRate(MSG_CLASS_NAV, MSG_ID_NAV_DOP, 6)); // 1Hz
         console->print(F("Sat 1Hz "));
-        printResult(setMessageRate(MSG_CLASS_NAV, MSG_ID_NAV_SAT, 10)); // 0.5Hz
+        printResult(setMessageRate(MSG_CLASS_NAV, MSG_ID_NAV_SAT, 9)); // 0.5Hz
         console->print(F("NavRate 200ms "));
         printResult(setNavRate(200,1,0));
         console->println(F("Reset Done"));
@@ -280,7 +295,10 @@ bool UBXReader::setupSatelites() {
 }
 
 void UBXReader::saveConfig() {
-        uint8_t msg[] = {
+    if ( !enabled ) {
+        return;
+    }
+    uint8_t msg[] = {
         ULBOX_SYNC1,
         ULBOX_SYNC2,
         MSG_CLASS_CFG,
@@ -360,6 +378,9 @@ bool UBXReader::expect(uint8_t clss, uint8_t id, bool verbose) {
  * Configured.
  */
 eUbloxMessageStatus UBXReader::read() {
+    if ( !enabled ) {
+        return msgIncomplete;
+    }
     metrics.readCalls++;
     while (ubloxDevice.available() > 0) {
         uint8_t c = ubloxDevice.read();

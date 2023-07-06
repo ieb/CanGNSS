@@ -52,6 +52,7 @@ public:
         return &metrics;
     }
     bool begin(uint16_t baudRate=19200);
+    void end();
     void factoryReset();
     void saveConfig();
 
@@ -60,6 +61,7 @@ private:
     uint8_t * packetBuffer; 
     UbloxHeader * ubloxHeader;
     uint16_t maxBufferSize;
+    bool enabled = false;
 
     uint16_t pos = 0;
     UBXReaderMetrics metrics;

@@ -33,16 +33,16 @@ Print *consolePtr = &console;
 
 const SNMEA2000ProductInfo productInfomation PROGMEM={
                                        1300,                        // N2kVersion
-                                       45,                         // Manufacturer's product code
-                                       "GNSS",    // Manufacturer's Model ID
+                                       46,                         // Manufacturer's product code
+                                       "5Hz GNSS",    // Manufacturer's Model ID
                                        "Luna GNSS",     // Manufacturer's Software version code
-                                       "5.6.7.8 (2017-06-11)",      // Manufacturer's Model version
+                                       "5Hz GNSS",      // Manufacturer's Model version
                                        "0000002",                  // Manufacturer's Model serial code
                                        0,                           // SertificationLevel
                                        1                            // LoadEquivalency
 };
 const SNMEA2000ConfigInfo configInfo PROGMEM={
-      "GNSS Receiver",
+      "5Hz GNSS Receiver",
       "Luna Technical Area",
       "https://github.com/ieb/CanGNSS"
 };
@@ -104,7 +104,10 @@ void saveConfig() {
   ubxReader.saveConfig();
 }
 
-
+void disconnectUBX() {
+  ubxReader.end();
+  console.println(F("UBX disconnected, reboot to reconnect"));
+}
 
 uint8_t diagnostics = 0;
 #define INFO_ENABLED  (diagnostics > 0)
