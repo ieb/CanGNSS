@@ -30,12 +30,14 @@ will be skipped.
 SoftwareSerial console(SOFT_RX_PIN, SOFT_TX_PIN);
 Print *consolePtr = &console;
 
+#define CODE_VERSION "0817f57"
+
 
 const SNMEA2000ProductInfo productInfomation PROGMEM={
                                        1300,                        // N2kVersion
                                        46,                         // Manufacturer's product code
                                        "5Hz GNSS",    // Manufacturer's Model ID
-                                       "0817f57",     // Manufacturer's Software version code
+                                       CODE_VERSION,     // Manufacturer's Software version code
                                        "5Hz GNSS",      // Manufacturer's Model version
                                        "0000002",                  // Manufacturer's Model serial code
                                        0,                           // SertificationLevel
@@ -132,7 +134,8 @@ void changeDiagnostics() {
 
 void setup() {
   console.begin(115200);
-  console.println(F("GNSS Receiver start"));
+  console.print(F("GNSS Receiver start version:"));
+  console.println(F(CODE_VERSION));
   commandLine.begin();
 
   // required to avoid an error initialising the can bus.
