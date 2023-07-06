@@ -35,7 +35,7 @@ const SNMEA2000ProductInfo productInfomation PROGMEM={
                                        1300,                        // N2kVersion
                                        46,                         // Manufacturer's product code
                                        "5Hz GNSS",    // Manufacturer's Model ID
-                                       "Luna GNSS",     // Manufacturer's Software version code
+                                       "0817f57",     // Manufacturer's Software version code
                                        "5Hz GNSS",      // Manufacturer's Model version
                                        "0000002",                  // Manufacturer's Model serial code
                                        0,                           // SertificationLevel
