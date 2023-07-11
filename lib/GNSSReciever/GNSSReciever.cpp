@@ -133,7 +133,9 @@ void GNSSReciever::sendRapidPossitionUpdate() {
 
 // {"timestamp":"2023-07-03-11:34:22.559","prio":2,"src":30,"dst":255,"pgn":129026,"description":"COG & SOG, Rapid Upd
 // ate","fields":{"SID":64,"COG Reference":"True","COG":102.9,"SOG":0.01}}
-// Ok
+// O
+
+
 void GNSSReciever::sendCOGSOG() {
     MessageHeader messageHeader(129026L, 2, getAddress(), SNMEA2000::broadcastAddress);
     startPacket(&messageHeader);
@@ -142,9 +144,9 @@ void GNSSReciever::sendCOGSOG() {
     // cog needs to be in radians
     // 10293041  == 102.93041 degrees.
     double cogRad = 1.74532925E-7*(gnss.heading_scaled);
-    output2ByteDouble(cogRad,0.0001);
-    // sog is in the correct units already
-    output2ByteInt(gnss.ground_speed);
+    output2ByteUDouble(cogRad,0.0001);
+    double sog = 0.01 * gnss.ground_speed; // in m/s
+    output2ByteUDouble(sog,0.01);
     outputByte(0xff);
     outputByte(0xff);
     finishPacket();
@@ -236,7 +238,7 @@ d"},{"PRN":23,"Elevation":5.0,"Azimuth":44.0,"SNR":10.00,"Range residuals":31500
 ":27.0,"Azimuth":104.0,"SNR":20.00}]}}
 */
 
-//
+/*
 void GNSSReciever::sendSatelitesInView(NavSat *sat) {
     gnss.numSvu = 0;
     for (int batch = 0; batch < sat->numSvs; batch = batch+17) {
@@ -278,6 +280,87 @@ void GNSSReciever::sendSatelitesInView(NavSat *sat) {
         }
         finishFastPacket();
     }
+
+}
+*/
+//
+
+int appendIfNew(uint8_t *arr, uint8_t len, uint8_t n) {
+    for ( int i = 0; i < len; i++) {
+        if (arr[i] == n) {
+            return len;
+        }
+    } 
+    arr[len] = n;
+    return len+1;
+}
+void GNSSReciever::sendSatelitesInView(NavSat *sat) {
+    uint8_t sats[17];
+    int satIdx = 0;
+    // find the sbas satelites first
+    for (int i = 0; satIdx < 17 && i < sat->numSvs; i++) {
+        if (sat->satelites[i].svId >= 120 && sat->satelites[i].svId <= 123  ) {
+            if ((sat->satelites[i].flags & 0x08) == 0x08 ) {
+                satIdx = appendIfNew(sats, satIdx, i);
+            }
+        }
+    }
+    // now find used sats
+    for (int i = 0; satIdx < 17 && i < sat->numSvs; i++) {
+        if ((sat->satelites[i].flags & 0x08) == 0x08 ) {
+            satIdx = appendIfNew(sats, satIdx, i);
+        }
+    }
+    // now add tracked sats
+    for (int i = 0; satIdx < 17 && i < sat->numSvs; i++) {
+        if ((sat->satelites[i].flags&0x07) > 6 ) {
+            satIdx = appendIfNew(sats, satIdx, i);
+        }
+    }
+    // add any more
+    for (int i = 0; satIdx < 17 && i < sat->numSvs; i++) {
+        satIdx = appendIfNew(sats, satIdx, i);
+    }
+
+    gnss.numSvu = 0;
+    MessageHeader messageHeader(129540L, 6, getAddress(), SNMEA2000::broadcastAddress);
+    startFastPacket(&messageHeader, 3+12*satIdx);
+    outputByte(toSID(sat->iTOW));
+    // range residuals are after
+    outputByte(0xfc | 0x01);
+    outputByte(satIdx);
+    for (int i = 0; i < satIdx; i++) {
+        uint8_t satNo = sats[i];
+        uint8_t usage = 0x00;
+        uint8_t quality = sat->satelites[satNo].flags&0x07; 
+        bool hasDiff = ((sat->satelites[satNo].flags & 0x40) == 0x40);
+        if ((sat->satelites[satNo].flags & 0x08) == 0x08 ) {
+            // used.
+            gnss.numSvu++;
+            if ( (sat->satelites[satNo].flags & 0x40) == 0x40 ) {
+                usage = 5; // with diff
+            } else {
+                usage = 2; // no diff
+            }
+        } else if ( quality > 6 ) {
+            // being tracked
+            if ( hasDiff ) {
+                usage = 4; // tracked with diff, not used.
+            } else {
+                usage = 1; // tracked not used.
+            }
+        } else if ( hasDiff ) {
+                usage = 3; // diff correction available
+        }
+        outputByte(0xff & sat->satelites[satNo].svId);
+        output2ByteDouble(((float)M_PI/180)*sat->satelites[satNo].elev, 0.0001);
+        output2ByteUDouble(((float)M_PI/180)*sat->satelites[satNo].azim, 0.0001);
+        output2ByteDouble(sat->satelites[satNo].cno, 0.01);
+        output4ByteDouble(10.0*sat->satelites[satNo].prRes, 0.00001);
+        outputByte(0xf0 | usage);
+    }
+    finishFastPacket();
+
 
 }
 
