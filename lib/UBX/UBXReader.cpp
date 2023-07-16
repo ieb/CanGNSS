@@ -356,8 +356,8 @@ bool UBXReader::expectAck(uint8_t clss, uint8_t id, bool verbose) {
 }
 
 bool UBXReader::expect(uint8_t clss, uint8_t id, bool verbose) {
-    unsigned long now = millis();
-    while(millis() < now + 2000) {
+    unsigned long timeout = millis() + 2000;
+    while(millis() < timeout) {
         eUbloxMessageStatus status = read();
         if (status == msgStatusOk || status == msgAck || status == msgNak) {
             if (verbose) {

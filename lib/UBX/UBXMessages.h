@@ -425,6 +425,7 @@ PACK(
                 // 0x05 = Time only fix
                 // 0x06..0xff: reserved
                 uint8_t flags;     // Fix Status Flags (see graphic below)
+                // 110111
                 // 1 FLAGS_GNSS_FIX_OK = 1          # i.e. within DOP & accuracy masks
                 // 2 FLAGS_DIFF_SOLN = 2            # DGPS used
                 // 28 FLAGS_PSM_MASK = 28            # Power Save Mode

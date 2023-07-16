@@ -32,6 +32,9 @@ void GNSSReciever::update(UbloxHeader *message) {
         gnss.sid = (((velned->iTOW)/500)%254); //2Hz rate. 
         gnss.heading_scaled = velned->heading_scaled;
         gnss.ground_speed = velned->ground_speed; // need in cm/s 
+        gnss.heading_accuracy = velned->heading_accuracy;
+        gnss.speed_accuracy = velned->speed_accuracy; // cm/s
+
         metrics.velned++;
         cogSent = true;
         sendCOGSOG();
@@ -95,9 +98,12 @@ void GNSSReciever::updateGnssFromPVT(NavPVT * pvt) {
     gnss.numSV = pvt->numSV;
     gnss.pdop = (int16_t)pvt->pDOP;    
     gnss.valid = pvt->valid;
+    gnss.flags = pvt->flags;
     gnss.methodType = 0x04;
     gnss.heading_scaled = pvt->headMot; // deg 1E-5
     gnss.ground_speed = pvt->gSpeed/10; // cm/s
+    gnss.heading_accuracy = pvt->headAcc;
+    gnss.speed_accuracy = pvt->sAcc/10; // cm/s
 
     if ( gnss.fixType == 0x01 ) {
         // dead reckoning
@@ -135,6 +141,7 @@ void GNSSReciever::sendRapidPossitionUpdate() {
 // ate","fields":{"SID":64,"COG Reference":"True","COG":102.9,"SOG":0.01}}
 // O
 
+int32_t testHeading = 0;
 
 void GNSSReciever::sendCOGSOG() {
     MessageHeader messageHeader(129026L, 2, getAddress(), SNMEA2000::broadcastAddress);
@@ -143,10 +150,26 @@ void GNSSReciever::sendCOGSOG() {
     outputByte(0x00 | 0xfc); // 0x00= assuming true cog. M8N doesn't have a declination model.
     // cog needs to be in radians
     // 10293041  == 102.93041 degrees.
-    double cogRad = 1.74532925E-7*(gnss.heading_scaled);
-    output2ByteUDouble(cogRad,0.0001);
-    double sog = 0.01 * gnss.ground_speed; // in m/s
-    output2ByteUDouble(sog,0.01);
+    if ( gnss.heading_accuracy < 2500000 ) {
+        // COG better than 25 degrees accuracy output it
+        double cogRad = 1.74532925E-7*(gnss.heading_scaled);
+        // m8n seem to emit -ve numbers for heading
+        // assuming this requires shifting to 0-360
+
+        if ( cogRad < 0.0 ) {
+            cogRad = cogRad+(2.0*M_PI);
+        }
+        output2ByteUDouble(cogRad,0.0001);
+    } else {
+        output2ByteUDouble(SNMEA2000::n2kDoubleNA,0.0001);
+    }
+    if (gnss.speed_accuracy < 50 ) { 
+        // SOG is better than 50cm/s accuracy
+        double sog = 0.01 * gnss.ground_speed; // in m/s
+        output2ByteUDouble(sog,0.01);
+    } else {
+        output2ByteUDouble(SNMEA2000::n2kDoubleNA,0.01);
+    }
     outputByte(0xff);
     outputByte(0xff);
     finishPacket();
@@ -381,7 +404,7 @@ void GNSSReciever::sendDOP() {
 
 void GNSSReciever::calculateVariationDegrees(NavPVT *pvt) {
     unsigned long now = millis();
-    if ( now > lastVariationCalc + 60000L) {
+    if ( (now-lastVariationCalc) > 60000L) {
         lastVariationCalc = now;
         float lat = 1.0E-7*(pvt->lat);
         float lon = 1.0E-7*(pvt->lon);

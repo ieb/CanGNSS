@@ -75,6 +75,7 @@ typedef struct _GNSSFix {
     uint8_t methodType;
     uint8_t actualMode;
     uint8_t valid;
+    uint8_t flags;
     uint8_t numSV;
     uint8_t numSvu;
     int16_t pdop;
@@ -90,6 +91,8 @@ typedef struct _GNSSFix {
     int32_t longitude_scaled;
     int32_t heading_scaled;
     uint32_t ground_speed;
+    uint32_t heading_accuracy;
+    uint32_t speed_accuracy;
     float variation;
 } GNSSFix;
 

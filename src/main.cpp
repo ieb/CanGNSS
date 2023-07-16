@@ -187,12 +187,12 @@ void dumpMessage(UbloxHeader *message) {
 }
 
 void dumpMetrics(bool force) {
-  static unsigned long tnext = 0;
+  static unsigned long tlast = 0;
   unsigned long now = millis();
-  if ( force || now > tnext ) {
+  if ( force || (now-tlast) > 5000 ) {
     UBXReaderMetrics * metrics = ubxReader.getMetrics();
     GNSSMetrics * gnssMetrics = gnssReciever.getMetrics();
-    tnext = now + 5000;
+    tlast = now;
     console.print(F("metrics bread:"));
     console.print(metrics->bytesRead);
     console.print(F(" restarts: "));
@@ -245,20 +245,22 @@ typedef struct _GNSSFix {
 } GNSSFix;
 */
 void dumpFix(bool force) {
-  static unsigned long tnext = 0;
+  static unsigned long tlast = 0;
   unsigned long now = millis();
-  if ( force || now > tnext ) {
+  if ( force || (now-tlast) > 2000 ) {
     GNSSFix  * fix = gnssReciever.getFix();
 
-    tnext = now + 2000;
+    tlast = now;
     console.print(F("fix lat:"));
-    console.print(fix->lat);
+    console.print((double)(fix->lat)*(1.0E-7),7);
     console.print(F(" lon:"));
-    console.print(fix->lon);
+    console.print((double)(fix->lon)*(1.0E-7),7);
     console.print(F(" cog:"));
-    console.print(fix->heading_scaled);
+    console.print((double)(fix->heading_scaled)*(1.0E-5),1);
     console.print(F(" sog:"));
-    console.print(fix->ground_speed);
+    console.print((double)fix->ground_speed*0.0194384,3);
+    console.print(F(" flags:"));
+    console.print(fix->flags);
     console.print(F(" sats:"));
     console.print(fix->numSvu);
     console.print(F(" pdop:"));
