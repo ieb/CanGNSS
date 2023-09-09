@@ -110,9 +110,9 @@ bool UBXReader::autoBaud() {
 
 bool UBXReader::detectTraffic() {
     // try to read 2 lines to see if we are getting NMEA0183
-    unsigned long timeout = millis()+1000;
+    unsigned long start = millis();
     uint8_t buf[4];
-    while(millis() < timeout) {
+    while(millis()-start < 1000) {
         if ( ubloxDevice.available() ) {
             buf[0] = buf[1];
             buf[1] = buf[2];
@@ -356,8 +356,8 @@ bool UBXReader::expectAck(uint8_t clss, uint8_t id, bool verbose) {
 }
 
 bool UBXReader::expect(uint8_t clss, uint8_t id, bool verbose) {
-    unsigned long timeout = millis() + 2000;
-    while(millis() < timeout) {
+    unsigned long start = millis();
+    while(millis()-start < 2000) {
         eUbloxMessageStatus status = read();
         if (status == msgStatusOk || status == msgAck || status == msgNak) {
             if (verbose) {
