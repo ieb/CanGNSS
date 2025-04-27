@@ -146,9 +146,9 @@ void setup() {
   // pin X low then the device starts with the Can device using SPI.
   gnssReciever.setSerialNumber(DEVICE_SERIAL_NUMBER);
   gnssReciever.setDeviceAddress(DEVICE_ADDRESS);
-  gnssReciever.open();
+  gnssReciever.open(MCP_16MHz);
   int retries = 0;
-  while ( retries < 5 && !gnssReciever.open() ) {
+  while ( retries < 5 && !gnssReciever.open(MCP_16MHz) ) {
     console.println(F("Failed to start CAN, retrying in 5s"));
     delay(5000);
     retries++;

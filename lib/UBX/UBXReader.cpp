@@ -74,14 +74,14 @@ void UBXReader::factoryReset() {
         printResult(setMessageRate(MSG_CLASS_NAV, MSG_ID_NAV_POSLLH, 1)); // 5Hz
         console->print(F("Velned 2.5Hz "));
         printResult(setMessageRate(MSG_CLASS_NAV, MSG_ID_NAV_VELNED, 2)); // 2.5Hz
-        console->print(F("PVT 1Hz "));
-        printResult(setMessageRate(MSG_CLASS_NAV, MSG_ID_NAV_PVT, 5)); // 1Hz
-        console->print(F("DOP 1Hz "));
-        printResult(setMessageRate(MSG_CLASS_NAV, MSG_ID_NAV_DOP, 6)); // 1Hz
-        console->print(F("Sat 1Hz "));
-        printResult(setMessageRate(MSG_CLASS_NAV, MSG_ID_NAV_SAT, 9)); // 0.5Hz
-        console->print(F("NavRate 200ms "));
-        printResult(setNavRate(200,1,0));
+        console->print(F("PVT 2s "));
+        printResult(setMessageRate(MSG_CLASS_NAV, MSG_ID_NAV_PVT, 10)); // 2s
+        console->print(F("DOP 4s "));
+        printResult(setMessageRate(MSG_CLASS_NAV, MSG_ID_NAV_DOP, 20)); // 4s
+        console->print(F("Sat 10s "));
+        printResult(setMessageRate(MSG_CLASS_NAV, MSG_ID_NAV_SAT, 50)); // 10s
+        console->print(F("NavRate 400ms 2 measurements per result "));
+        printResult(setNavRate(100,2,0));
         console->println(F("Reset Done"));
     } else {
         console->println(F("No baud found, reset failed"));
@@ -166,58 +166,20 @@ void UBXReader::switchBaudRate(uint32_t toBaud) {
 }
 
 bool UBXReader::setMessageRate(uint8_t cls, uint8_t id, uint8_t rate) {
-/*
-    {
-        uint8_t msg[] = {
-            ULBOX_SYNC1,
-            ULBOX_SYNC2,
-            MSG_CLASS_CFG,
-            MSG_ID_CFG_MSG,
-            (uint8_t) 2,
-            (uint8_t) 0,
-            (uint8_t) cls,
-            (uint8_t) id,
-            (uint8_t) 0x01,
-            (uint8_t) 0x02
-        };
-        calculateChecksum((UbloxHeader *)&(msg[0]), &(msg[8]));
-        console->print("\nPoll>");
-        dumpMessage((UbloxHeader *)&msg[0]);
-        ubloxDevice.write((uint8_t *)&msg[0], 10);
-        ubloxDevice.flush();
-        for (int r = 0; r < 5; r++) {
-            if (expect(MSG_CLASS_CFG, MSG_ID_CFG_MSG, false) ) {
-                CfgMsg * resp = (CfgMsg *)ubloxHeader;
-                if ( ubloxHeader->payloadLength == 8 && 
-                    resp->messageClass == cls &&
-                    resp->messageId == id) {
-                    console->print(F("Rates:"));
-                    for (int i = 0; i < 6; i++) {
-                        console->print(resp->rates[i]);
-                        console->print(",");
-                    }
-                    console->println("");
-                    break;
-                }
-            }
-        }
-    } */
-    {
-        uint8_t msg[] = {
-            ULBOX_SYNC1,
-            ULBOX_SYNC2,
-            MSG_CLASS_CFG,
-            MSG_ID_CFG_MSG,
-            (uint8_t) 3,
-            (uint8_t) 0,
-            (uint8_t) cls,
-            (uint8_t) id,
-            (uint8_t) rate,
-            (uint8_t) 0x01,
-            (uint8_t) 0x02,
-        };
-        return sendConfig((uint8_t *)&msg[0], 3+8);
-    }
+    uint8_t msg[] = {
+        ULBOX_SYNC1,
+        ULBOX_SYNC2,
+        MSG_CLASS_CFG,
+        MSG_ID_CFG_MSG,
+        (uint8_t) 3, // 8 bytes bigendian
+        (uint8_t) 0,
+        (uint8_t) cls,
+        (uint8_t) id,
+        (uint8_t) rate, // UART1
+        (uint8_t) 0x01, // cs1
+        (uint8_t) 0x02, // cs2
+    };
+    return sendConfig((uint8_t *)&msg[0], 3+8);
 }
 
 bool UBXReader::setNavRate(uint16_t measMs, uint16_t measCycles, uint16_t ref) {
@@ -264,7 +226,7 @@ bool UBXReader::setupSatelites() {
     message.systems[1].flags = 0x00010001; // L1C/A 1575.42MHz 
 
     message.systems[2].gnssId = 2; // Galleleo
-    message.systems[2].resTrkCh = 4; 
+    message.systems[2].resTrkCh = 6; 
     message.systems[2].maxTrkCh = 10; 
     message.systems[2].flags = 0x00010001; // E1 1,575.42MHz
 
@@ -278,14 +240,14 @@ bool UBXReader::setupSatelites() {
     message.systems[4].maxTrkCh = 0; 
     message.systems[4].flags = 0x00000000; 
 
-    message.systems[5].gnssId = 5; // QZSS, disabled
-    message.systems[5].resTrkCh = 0; 
-    message.systems[5].maxTrkCh = 0; 
-    message.systems[5].flags = 0x00000000; 
+    message.systems[5].gnssId = 5; // QZSS, enabled for completeness of solution see doc
+    message.systems[5].resTrkCh = 1; 
+    message.systems[5].maxTrkCh = 1; 
+    message.systems[5].flags = 0x00010001; 
 
     message.systems[6].gnssId = 5; // Glonas 
-    message.systems[6].resTrkCh = 6; 
-    message.systems[6].maxTrkCh = 8; 
+    message.systems[6].resTrkCh = 2; 
+    message.systems[6].maxTrkCh = 5; 
     message.systems[6].flags = 0x00010001;  // L1  1592.9525 MHz to 1610.485 14 channels
 
     // so we can verify checksump calculation.

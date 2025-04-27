@@ -69,6 +69,39 @@ pres h to get the menu and u to disconnect the UART. The Ctrl-a + k  to exit scr
 
 Then connect pyGPSClient to the ublox via a serial and reconfigure as required.
 
+## Expected setup.
+
+* Baud 19200
+* UBX Messages only, no NMEA
+
+The satelite setup blow gives about 1m 3D accuracy without SBAS corrections, and slightly less once the SBAS
+corrections are received. Should probably write this into code.
+* CFG-GNSS  also set in code
+* msgVer 0, mumTrkChHw 32 (read only), mumTrkChUse 32, numConfigBlocks 7
+* gnssId 0 (GPS), res 4, max 16, enable 1, mask 1 eg L1C/A 1,575.42MHz
+* gnssId 1 (SBAS), res 2, max 4, enable 1, mask 1 eg L1C/A 1,575.42MHz
+* gnssId 2 (Galileo), res 4, max 8, enable 1, mask 1 eg E1 1,575.42MHz
+* gnssId 3 (BelDou) disabled 0,0,0,0
+* gnssId 4 (IMESS) diabled 0,0,0,0
+* gnssId 5 (QZSS) res 1, max 1, enable 1 mask 1, L1C/A  1,575.42MHz
+* gnssId 6 (GLonas) res 2, max 5 enable 1, mask 1 L1
+*
+* CFG-ITMF,ection Jamming det enabled on active antena, all else defaults.
+* CFG_NAV5 set modes to sea
+* CFG-SBAS as default enable  1 (ignored), test 0, range 1, diffCorr 1, integrety 0, maxSBAS 3
+* PRN 120, 123, 127-129, 133, 135-138
+
+* Also set in code
+* CFG_RATE Solution interval 200ms, measurement ratio 5, UTC. 
+* NAV setup all off except
+* NAV-DOP 6
+* NAV-POSLLH 1
+* NAV-PVT 5
+* NAV-SAT 9
+* NAV-VELNED 2
+
+
+
 
 # PCB
 
